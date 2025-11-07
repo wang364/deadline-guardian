@@ -1,0 +1,25 @@
+modules:
+  jira:globalPage:
+    - key: deadline-guardian
+      resource: main
+      resolver:
+        function: resolver
+      render: native
+      title: deadline-guardian
+  function:
+    - key: resolver
+      handler: index.handler
+resources:
+  - key: main
+    path: src/frontend/index.jsx
+app:
+  runtime:
+    name: nodejs22.x
+    memoryMB: 256
+    architecture: arm64
+  id: ari:cloud:ecosystem::app/10fafa22-c58b-4779-81e6-1c03b82687c4
+permissions:
+  scopes:
+    - storage:app
+    - read:jira-work
+    - write:jira-work

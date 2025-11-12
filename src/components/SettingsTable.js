@@ -2,24 +2,28 @@ import React, { useState } from 'react';
 import { Box, Button, Textfield, DynamicTable } from '@forge/react';
 
 const SettingsTable = ({ settings, setSettings }) => {
+  // Use functional updates to avoid stale closures and race conditions
   const addRow = () => {
-    setSettings([...settings, { field: '', condition: '', threshold: '' }]);
+    setSettings(prev => [...prev, { field: '', condition: '', threshold: '' }]);
   };
 
   const deleteRow = (index) => {
-    const newSettings = [...settings];
-    newSettings.splice(index, 1);
-    // Ensure at least one empty row exists
-    if (newSettings.length === 0) {
-      newSettings.push({ field: '', condition: '', threshold: '' });
-    }
-    setSettings(newSettings);
+    setSettings(prev => {
+      const newSettings = [...prev];
+      newSettings.splice(index, 1);
+      // Ensure at least one empty row exists
+      if (newSettings.length === 0) {
+        newSettings.push({ field: '', condition: '', threshold: '' });
+      }
+      return newSettings;
+    });
   };
 
   const handleChange = (index, field, value) => {
-    const newSettings = [...settings];
-    newSettings[index][field] = value;
-    setSettings(newSettings);
+    setSettings(prev => {
+      const newSettings = prev.map((s, i) => (i === index ? { ...s, [field]: value } : s));
+      return newSettings;
+    });
   };
 
   // Prepare table header
@@ -60,7 +64,8 @@ const SettingsTable = ({ settings, setSettings }) => {
         content: (
           <Textfield
             value={setting.field}
-            onChange={(e) => handleChange(index, 'field', e.target.value)}
+            // @forge/react Textfield onChange provides the new value directly
+            onChange={(value) => handleChange(index, 'field', value)}
             placeholder="Field"
           />
         ),
@@ -70,7 +75,7 @@ const SettingsTable = ({ settings, setSettings }) => {
         content: (
           <Textfield
             value={setting.condition}
-            onChange={(e) => handleChange(index, 'condition', e.target.value)}
+            onChange={(value) => handleChange(index, 'condition', value)}
             placeholder="Condition"
           />
         ),
@@ -80,7 +85,7 @@ const SettingsTable = ({ settings, setSettings }) => {
         content: (
           <Textfield
             value={setting.threshold}
-            onChange={(e) => handleChange(index, 'threshold', e.target.value)}
+            onChange={(value) => handleChange(index, 'threshold', value)}
             placeholder="Threshold"
           />
         ),
@@ -102,7 +107,7 @@ const SettingsTable = ({ settings, setSettings }) => {
         rows={rows}
         isFixedSize
       />
-      <Box padding="medium">
+      <Box padding="medium" paddingTop="none">
         <Button appearance="primary" onClick={addRow}>Add New Row</Button>
       </Box>
     </Box>

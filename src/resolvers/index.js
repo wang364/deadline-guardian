@@ -8,62 +8,166 @@ const log = (message, data) => {
   console.log(`[${new Date().toISOString()}] ${message}:`, JSON.stringify(data, null, 2));
 };
 
+// 定义选项数组，与前端保持一致
+const periodOptions = [
+  { label: 'Daily', value: 'Daily' },
+  { label: 'Monday', value: 'Monday' },
+  { label: 'Tuesday', value: 'Tuesday' },
+  { label: 'Wednesday', value: 'Wednesday' },
+  { label: 'Thursday', value: 'Thursday' },
+  { label: 'Friday', value: 'Friday' },
+  { label: 'Saturday', value: 'Saturday' },
+  { label: 'Sunday', value: 'Sunday' }
+];
+
 resolver.define('saveUserSettings', async ({ payload }) => {
-  const { settings } = payload;
-  const existingSettings = await storage.query().getMany();
-  for (const setting of existingSettings.results) {
-    await storage.delete(setting.key);
-  }
+  // payload contains settings (array), schedulePeriod (string) and scheduleTime (string)
+  const { settings = [], schedulePeriod = { label: 'Daily', value: 'Daily' }, scheduleTime = '17:00' } = payload;
 
-  for (const setting of settings) {
-    await storage.set(`setting_${setting.field}`, setting);
-  }
+  // Helper to extract and validate schedulePeriod as Option object
+  const extractSchedulePeriod = (val) => {
+    if (!val) return { label: 'Daily', value: 'Daily' };
+    
+    // 如果已经是有效的 Option 对象
+    if (typeof val === 'object' && val.label && val.value) {
+      // 验证 value 是否在允许的选项中
+      const isValidOption = periodOptions.some(option => option.value === val.value);
+      return isValidOption ? val : { label: 'Daily', value: 'Daily' };
+    }
+    
+    // 如果是字符串，尝试转换为 Option 对象
+    if (typeof val === 'string') {
+      const matchedOption = periodOptions.find(option => option.value === val.trim());
+      return matchedOption || { label: 'Daily', value: 'Daily' };
+    }
+    
+    // 如果是 DOM event 对象
+    if (val.target && typeof val.target.value !== 'undefined') {
+      const matchedOption = periodOptions.find(option => option.value === String(val.target.value).trim());
+      return matchedOption || { label: 'Daily', value: 'Daily' };
+    }
+    
+    // 未知格式，返回默认值
+    return { label: 'Daily', value: 'Daily' };
+  };
 
-  log('Saved user settings', settings);
+  // Helper to extract scheduleTime as string
+  const extractScheduleTime = (val) => {
+    if (!val) return '17:00';
+    
+    // 如果是 DOM event 对象
+    if (val.target && typeof val.target.value !== 'undefined') {
+      return String(val.target.value);
+    }
+    
+    // 如果是对象但有 value 属性
+    if (typeof val === 'object' && typeof val.value !== 'undefined') {
+      return String(val.value);
+    }
+    
+    return String(val);
+  };
+
+  const safeSchedulePeriod = extractSchedulePeriod(schedulePeriod);
+  const safeScheduleTime = extractScheduleTime(scheduleTime);
+
+  // Validate scheduleTime format
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  const validatedScheduleTime = timeRegex.test(safeScheduleTime) ? safeScheduleTime : '17:00';
+
+  // Store the whole settings array under a single key for simplicity and retrieval
+  await storage.set('settings', settings);
+
+  // Store schedule settings separately (always as strings)
+  await storage.set('schedulePeriod', safeSchedulePeriod);
+  await storage.set('scheduleTime', validatedScheduleTime);
+
+  log('Saved user settings', { settings, schedulePeriod: safeSchedulePeriod, scheduleTime: safeScheduleTime });
   return { success: true };
 });
 
 // Get all settings
 resolver.define('getSettings', async () => {
-  const settingsResult = await storage.query().getMany();
-  console.log('settingsResult:', typeof settingsResult, settingsResult);
-  const settings = settingsResult.results.map(result => result.value);
-
+  // Read the settings array stored under the 'settings' key
+  const stored = await storage.get('settings');
+  const settings = stored || [];
   log('Fetched settings', settings);
   return { settings };
 });
 
-
-// Get stored Jira due dates
-resolver.define('getJiraDueDates', async () => {
-  const keysResult = await storage.query().getMany();
-  log('Fetched keys from storage', keysResult);
-  const keys = Array.isArray(keysResult) ? keysResult : [];
-  const dueDates = [];
+// Get schedule period as Option object
+resolver.define('getschedulePeriod', async () => {
+  let schedulePeriod = await storage.get('schedulePeriod');
   
-  for (const key of keys) {
-    const data = await storage.get(key);
-    log('Fetched data from storage for key', { key, data });
-    if (data && data.dueDate) {
-      dueDates.push({
-        key,
-        dueDate: data.dueDate,
-      });
+  log('Raw schedulePeriod from storage', schedulePeriod);
+  
+  // 如果存储的是字符串，转换为 Option 对象
+  if (typeof schedulePeriod === 'string') {
+    const matchedOption = periodOptions.find(option => option.value === schedulePeriod);
+    if (matchedOption) {
+      schedulePeriod = matchedOption;
+      // 更新存储为 Option 对象格式
+      await storage.set('schedulePeriod', schedulePeriod);
+      log('Converted string to Option object', schedulePeriod);
+    } else {
+      schedulePeriod = { label: 'Daily', value: 'Daily' };
+      await storage.set('schedulePeriod', schedulePeriod);
+      log('Set default Option object', schedulePeriod);
     }
   }
-  
-  return dueDates;
+  // 如果存储的是无效对象，修复它
+  else if (typeof schedulePeriod === 'object' && schedulePeriod !== null) {
+    // 检查是否具有正确的格式
+    if (!schedulePeriod.label || !schedulePeriod.value) {
+      const matchedOption = periodOptions.find(option => 
+        option.value === (schedulePeriod.value || schedulePeriod.target?.value || 'Daily')
+      );
+      schedulePeriod = matchedOption || { label: 'Daily', value: 'Daily' };
+      await storage.set('schedulePeriod', schedulePeriod);
+      log('Fixed invalid Option object', schedulePeriod);
+    }
+    // 验证 value 是否在允许的选项中
+    else if (!periodOptions.some(option => option.value === schedulePeriod.value)) {
+      schedulePeriod = { label: 'Daily', value: 'Daily' };
+      await storage.set('schedulePeriod', schedulePeriod);
+      log('Fixed invalid Option value', schedulePeriod);
+    }
+  }
+  // 如果没有存储的值或值为 null/undefined
+  else {
+    schedulePeriod = { label: 'Daily', value: 'Daily' };
+    await storage.set('schedulePeriod', schedulePeriod);
+    log('Set initial default Option object', schedulePeriod);
+  }
+
+  log('Fetched schedulePeriod as Option object', schedulePeriod);
+  return { schedulePeriod };
 });
 
-// Monitor Jira due date
-resolver.define('monitorDueDate', async (req) => {
-  const { issueKey } = req.payload;
-  const dueDate = new Date();
-  dueDate.setDate(dueDate.getDate() + 1); // Mock data
+resolver.define('getscheduleTime', async () => {
+  let scheduleTime = await storage.get('scheduleTime');
+  // If scheduleTime is an object, try to extract a primitive value, otherwise null
+  if (typeof scheduleTime === 'object' && scheduleTime !== null) {
+    if (scheduleTime.target && typeof scheduleTime.target.value !== 'undefined') {
+      scheduleTime = String(scheduleTime.target.value);
+    } else if (typeof scheduleTime.value !== 'undefined') {
+      scheduleTime = String(scheduleTime.value);
+    } else {
+      scheduleTime = null;
+    }
+  }
 
-  await storage.set(issueKey, { dueDate });
+  // Validate scheduleTime format HH:MM (24-hour)
+  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+  if (!scheduleTime || typeof scheduleTime !== 'string' || !timeRegex.test(scheduleTime)) {
+    const defaultTime = '17:00';
+    await storage.set('scheduleTime', defaultTime);
+    log('Normalized scheduleTime to default', defaultTime);
+    return { scheduleTime: defaultTime };
+  }
 
-  return { success: true, dueDate };
+  log('Fetched scheduleTime', scheduleTime);
+  return { scheduleTime };
 });
 
 // Check and trigger alerts

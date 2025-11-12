@@ -100,9 +100,9 @@ const SettingsTable = ({ settings, setSettings }) => {
   }));
 
   return (
-    <Box>
+    <Box padding="space.200">
       <DynamicTable
-        caption='User Settings'
+        caption='Condition Settings'
         head={head}
         rows={rows}
         isFixedSize

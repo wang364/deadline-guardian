@@ -110,14 +110,14 @@ const App = () => {
 
   return (
     <>
-      <SettingsTable
+      <SettingsTable 
         settings={settings}
         setSettings={setSettings}
       />
       {error && <ErrorMessage>{error}</ErrorMessage>}
       
 
-      <Box padding="medium" borderWidth="1px" borderStyle="solid" borderColor="gray">
+      <Box padding="space.200" borderWidth="1px" borderStyle="solid" borderColor="gray">
         <Text size="large" weight="bold">Schedule Settings</Text>
         <Box padding="small">
           <Label labelFor="schedulePeriod">
@@ -148,7 +148,7 @@ const App = () => {
         {error && <ErrorMessage>{error}</ErrorMessage>}
       </Box>
 
-      <Box padding="medium" paddingTop="large">
+      <Box padding="space.200">
           <Button appearance="primary" onClick={handleSaveSettings}>Save Settings</Button>
           <Text>{message}</Text>
       </Box>

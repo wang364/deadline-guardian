@@ -71,9 +71,22 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   const safeSchedulePeriod = extractSchedulePeriod(schedulePeriod);
   const safeScheduleTime = extractScheduleTime(scheduleTime);
 
-  // Validate scheduleTime format
-  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-  const validatedScheduleTime = timeRegex.test(safeScheduleTime) ? safeScheduleTime : '17:00';
+  // 改进的时间格式验证，支持多种格式：H:M, HH:M, H:MM, HH:MM
+  const isValidTimeFormat = (time) => {
+    if (!time || typeof time !== 'string') return false;
+    const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+    const trimmedTime = time.trim();
+    const match = trimmedTime.match(timeRegex);
+    
+    if (!match) return false;
+    
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    
+    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+  };
+  
+  const validatedScheduleTime = isValidTimeFormat(safeScheduleTime) ? safeScheduleTime : '17:00';
 
   // Store the whole settings array under a single key for simplicity and retrieval
   await storage.set('settings', settings);
@@ -157,9 +170,22 @@ resolver.define('getscheduleTime', async () => {
     }
   }
 
-  // Validate scheduleTime format HH:MM (24-hour)
-  const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-  if (!scheduleTime || typeof scheduleTime !== 'string' || !timeRegex.test(scheduleTime)) {
+  // 改进的时间格式验证，支持多种格式：H:M, HH:M, H:MM, HH:MM
+  const isValidTimeFormat = (time) => {
+    if (!time || typeof time !== 'string') return false;
+    const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+    const trimmedTime = time.trim();
+    const match = trimmedTime.match(timeRegex);
+    
+    if (!match) return false;
+    
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    
+    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+  };
+  
+  if (!scheduleTime || typeof scheduleTime !== 'string' || !isValidTimeFormat(scheduleTime)) {
     const defaultTime = '17:00';
     await storage.set('scheduleTime', defaultTime);
     log('Normalized scheduleTime to default', defaultTime);

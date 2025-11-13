@@ -35,12 +35,27 @@ const App = () => {
     return matchedOption || { label: 'Daily', value: 'Daily' };
   };
 
+  // 简化版本的normalizeTime，允许用户自由输入，只在保存时验证
   const normalizeTime = (val) => {
     if (!val || typeof val !== 'string') return '17:00';
     const v = val.trim();
-    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
-    console.log('Normalizing time:', v, timeRegex.test(v));
-    return timeRegex.test(v) ? v : '17:00';
+    // 直接返回用户输入的值，不做任何验证或转换
+    return v;
+  };
+  
+  // 改进的时间格式验证函数，支持多种格式：H:M, HH:M, H:MM, HH:MM
+  const isValidTimeFormat = (time) => {
+    if (!time || typeof time !== 'string') return false;
+    const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+    const trimmedTime = time.trim();
+    const match = trimmedTime.match(timeRegex);
+    
+    if (!match) return false;
+    
+    const hours = parseInt(match[1], 10);
+    const minutes = parseInt(match[2], 10);
+    
+    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
   };
 
   useEffect(() => {
@@ -59,13 +74,16 @@ const App = () => {
         
         setSettings(settingsData || []);
 
+        console.log('Setting initial values:', { 
+          periodData, 
+          timeData
+        });
+
         const normalizedPeriod = normalizePeriod(periodData);
         const normalizedTime = normalizeTime(timeData);
 
-        console.log('Setting initial values:', { 
-          periodData, 
+        console.log('Setting normalized values:', { 
           normalizedPeriod, 
-          timeData, 
           normalizedTime 
         });
 
@@ -84,23 +102,44 @@ const App = () => {
 
   const handleSaveSettings = async () => {
     try {
+      // 保存前验证时间格式
+      if (!isValidTimeFormat(scheduleTime)) {
+        setError('Please enter a valid time format (HH:MM)');
+        return;
+      }
       const response = await invoke('saveUserSettings', { settings, schedulePeriod, scheduleTime });
-      setMessage(response.success ? 'Settings saved successfully' : 'Failed to save settings');
+      const successMessage = response.success ? 'Settings saved successfully' : 'Failed to save settings';
+      setMessage(successMessage);
+      
+      // 3秒后自动清除消息
+      setTimeout(() => {
+        setMessage('');
+      }, 3000);
     } catch (err) {
       setError(err.message);
     }
   };
 
+  // 删除旧的handlePeriodChange函数，使用新的版本
+
+  const handleTimeChange = (value) => {
+    // @forge/react Textfield onChange提供的是新值直接作为参数
+    console.log('Time changed to:', value);
+    // 直接设置用户输入的值，不做任何处理
+    setScheduleTime(value.target.value);
+    // 当用户修改时间时，清除之前的错误消息
+    if (error) {
+      setError(undefined);
+    }
+  };
+  
   const handlePeriodChange = (option) => {
     console.log('Period changed to:', option);
     setSchedulePeriod(option);
-  };
-
-  const handleTimeChange = (e) => {
-    console.log('Time changed to:', e.target.value);
-    const t = normalizeTime(e.target.value);
-    console.log('Normalized time to:', t);
-    setScheduleTime(t);
+    // 当用户修改周期时，也清除错误消息
+    if (error) {
+      setError(undefined);
+    }
   };
 
 

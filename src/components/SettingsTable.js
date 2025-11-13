@@ -20,6 +20,9 @@ const SettingsTable = ({ settings, setSettings }) => {
   };
 
   const handleChange = (index, field, value) => {
+    console.log(value);
+    value = value.target.value;
+    console.log(`Updating setting at index ${index}: ${field} = ${value}`); 
     setSettings(prev => {
       const newSettings = prev.map((s, i) => (i === index ? { ...s, [field]: value } : s));
       return newSettings;

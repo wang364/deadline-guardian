@@ -9,6 +9,12 @@ modules:
   function:
     - key: resolver
       handler: index.handler
+    - key: check-due-date-alert
+      handler: index.checkDueDateAlert
+  scheduledTrigger:
+    - key: deadline-check-trigger
+      function: check-due-date-alert
+      interval: fiveMinute
 resources:
   - key: main
     path: src/frontend/index.jsx

@@ -196,12 +196,70 @@ resolver.define('getscheduleTime', async () => {
   return { scheduleTime };
 });
 
-// Check and trigger alerts
-resolver.define('checkDueDateAlert', async (req) => {
-  const jiraApiUrl = 'https://your-jira-instance.atlassian.net/rest/api/2/search';
-  const jql = 'project=YOUR_PROJECT_KEY AND due <= now()+1d';
-  
+// Check and trigger alerts - 用于scheduledTrigger的函数
+export const checkDueDateAlert = async () => {
   try {
+    // 获取用户设置的调度周期和时间
+    const schedulePeriod = await storage.get('schedulePeriod');
+    const scheduleTime = await storage.get('scheduleTime');
+    
+    log('Scheduled check triggered', { schedulePeriod, scheduleTime });
+    
+    // 如果没有设置调度周期或时间，使用默认值
+    const safeSchedulePeriod = schedulePeriod?.value || schedulePeriod || 'Daily';
+    const safeScheduleTime = scheduleTime || '17:00';
+    
+    // 解析目标时间（格式：HH:MM）
+    const [targetHour, targetMinute] = safeScheduleTime.split(':').map(Number);
+    
+    // 获取当前时间
+    const now = new Date();
+    const currentHour = now.getHours();
+    const currentMinute = now.getMinutes();
+    const currentDay = now.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+    
+    // 检查当前时间是否在目标时间±5分钟范围内
+    const timeDiff = Math.abs((currentHour * 60 + currentMinute) - (targetHour * 60 + targetMinute));
+    if (timeDiff > 5) {
+      log('Not in scheduled time window, skipping check');
+      return { success: true, skipped: true, reason: 'Not in scheduled time window' };
+    }
+    
+    // 检查周期设置
+    let shouldRun = false;
+    
+    if (safeSchedulePeriod === 'Daily') {
+      shouldRun = true;
+    } else if (safeSchedulePeriod === 'Weekly') {
+      // 每周日运行（可以根据需要调整）
+      shouldRun = currentDay === 0;
+    } else if (safeSchedulePeriod === 'Monday') {
+      shouldRun = currentDay === 1;
+    } else if (safeSchedulePeriod === 'Tuesday') {
+      shouldRun = currentDay === 2;
+    } else if (safeSchedulePeriod === 'Wednesday') {
+      shouldRun = currentDay === 3;
+    } else if (safeSchedulePeriod === 'Thursday') {
+      shouldRun = currentDay === 4;
+    } else if (safeSchedulePeriod === 'Friday') {
+      shouldRun = currentDay === 5;
+    } else if (safeSchedulePeriod === 'Saturday') {
+      shouldRun = currentDay === 6;
+    } else if (safeSchedulePeriod === 'Sunday') {
+      shouldRun = currentDay === 0;
+    }
+    
+    if (!shouldRun) {
+      log('Not scheduled day, skipping check', { period: safeSchedulePeriod, currentDay });
+      return { success: true, skipped: true, reason: 'Not scheduled day' };
+    }
+    
+    log('Running scheduled check', { period: safeSchedulePeriod, time: safeScheduleTime });
+    
+    // 执行实际的Jira检查
+    const jiraApiUrl = 'https://your-jira-instance.atlassian.net/rest/api/2/search';
+    const jql = 'project=YOUR_PROJECT_KEY AND due <= now()+1d';
+    
     const response = await requestJira(jiraApiUrl, {
       method: 'GET',
       headers: {
@@ -248,13 +306,17 @@ resolver.define('checkDueDateAlert', async (req) => {
         },
         body: JSON.stringify(alertMessage),
       });
+      
+      log('Alert sent successfully', { issueCount: issues.length });
+    } else {
+      log('No issues found with upcoming due dates');
     }
     
-    return { success: true, issues };
+    return { success: true, issues, skipped: false };
   } catch (error) {
-    console.error('Error checking due date alerts:', error);
+    error('Error checking due date alerts:', error);
     throw error;
   }
-});
+};
 
 export const handler = resolver.getDefinitions();

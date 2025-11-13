@@ -1,1 +1,1 @@
-export { handler } from './resolvers';
+export { handler, checkDueDateAlert } from './resolvers';

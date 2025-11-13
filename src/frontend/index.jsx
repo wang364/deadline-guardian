@@ -9,6 +9,8 @@ const App = () => {
   const [error, setError] = useState(undefined);
   const [schedulePeriod, setSchedulePeriod] = useState({ label: 'Daily', value: 'Daily' });
   const [scheduleTime, setScheduleTime] = useState('17:00');
+  const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
+  const [webhookError, setWebhookError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
     // 定义选项数组
@@ -65,18 +67,21 @@ const App = () => {
         const [
           { settings: settingsData },
           { schedulePeriod: periodData },
-          { scheduleTime: timeData }
+          { scheduleTime: timeData },
+          { url: webhookData }
         ] = await Promise.all([
           invoke('getSettings'),
           invoke('getschedulePeriod'),
-          invoke('getscheduleTime')
+          invoke('getscheduleTime'),
+          invoke('getTeamsWebhookUrl')
         ]);
         
         setSettings(settingsData || []);
 
         console.log('Setting initial values:', { 
           periodData, 
-          timeData
+          timeData,
+          webhookData
         });
 
         const normalizedPeriod = normalizePeriod(periodData);
@@ -84,11 +89,13 @@ const App = () => {
 
         console.log('Setting normalized values:', { 
           normalizedPeriod, 
-          normalizedTime 
+          normalizedTime,
+          webhookUrl: webhookData
         });
 
         setSchedulePeriod(normalizedPeriod);
         setScheduleTime(normalizedTime);
+        setTeamsWebhookUrl(webhookData || '');
 
       } catch (err) {
         setError(`Failed to load settings: ${err.message}`);
@@ -107,6 +114,14 @@ const App = () => {
         setError('Please enter a valid time format (HH:MM)');
         return;
       }
+      
+      // 保存Teams Webhook URL
+      const webhookResult = await invoke('saveTeamsWebhookUrl', { url: teamsWebhookUrl });
+      if (!webhookResult.success) {
+        setWebhookError(webhookResult.message);
+        return;
+      }
+      
       const response = await invoke('saveUserSettings', { settings, schedulePeriod, scheduleTime });
       const successMessage = response.success ? 'Settings saved successfully' : 'Failed to save settings';
       setMessage(successMessage);
@@ -130,6 +145,19 @@ const App = () => {
     // 当用户修改时间时，清除之前的错误消息
     if (error) {
       setError(undefined);
+    }
+  };
+
+
+
+  // Handle Teams Webhook URL change
+  const handleWebhookUrlChange = (e) => {
+    const newUrl = e.target.value;
+    console.log('Teams webhook URL changed:', newUrl ? '[REDACTED]' : 'empty');
+    setTeamsWebhookUrl(newUrl);
+    // Clear webhook error when user starts typing
+    if (webhookError) {
+      setWebhookError('');
     }
   };
   
@@ -183,6 +211,21 @@ const App = () => {
             // @forge/react Textfield onChange provides the new value directly
             onChange={(e) => handleTimeChange(e)}
           />
+        </Box>
+        <Box padding="small">
+          <Label labelFor="teamsWebhookUrl">
+            Teams Webhook URL
+          </Label>
+          <Textfield
+            id="teamsWebhookUrl"
+            value={teamsWebhookUrl}
+            onChange={handleWebhookUrlChange}
+            placeholder="https://your-tenant.webhook.office.com/webhookb2/..."
+          />
+          <Text size="small" color="subdued">
+            Configure your Microsoft Teams webhook URL for notifications
+          </Text>
+          {webhookError && <ErrorMessage>{webhookError}</ErrorMessage>}
         </Box>
         {error && <ErrorMessage>{error}</ErrorMessage>}
       </Box>

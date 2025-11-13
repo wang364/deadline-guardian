@@ -1,10 +1,14 @@
 import React, { useState } from 'react';
 import { Box, Button, Textfield, DynamicTable } from '@forge/react';
+import { invoke } from '@forge/bridge';
 
 const SettingsTable = ({ settings, setSettings }) => {
+  const [testResults, setTestResults] = useState({});
+  const [loadingTests, setLoadingTests] = useState({});
+
   // Use functional updates to avoid stale closures and race conditions
   const addRow = () => {
-    setSettings(prev => [...prev, { field: '', condition: '', threshold: '' }]);
+    setSettings(prev => [...prev, { jql: '' }]);
   };
 
   const deleteRow = (index) => {
@@ -13,7 +17,7 @@ const SettingsTable = ({ settings, setSettings }) => {
       newSettings.splice(index, 1);
       // Ensure at least one empty row exists
       if (newSettings.length === 0) {
-        newSettings.push({ field: '', condition: '', threshold: '' });
+        newSettings.push({ jql: '' });
       }
       return newSettings;
     });
@@ -29,31 +33,89 @@ const SettingsTable = ({ settings, setSettings }) => {
     });
   };
 
+  const testJqlSearch = async (index, jql) => {
+    if (!jql || !jql.trim()) {
+      alert('Please enter a JQL query first');
+      return;
+    }
+
+    setLoadingTests(prev => ({ ...prev, [index]: true }));
+    
+    try {
+      console.log(`Testing JQL search for row ${index}:`, jql);
+      
+      const result = await invoke('searchIssuesWithJql', {
+        jql: jql.trim(),
+        maxResults: 5,
+        fields: ['key', 'summary', 'status', 'priority', 'assignee', 'duedate', 'updated']
+      });
+      
+      console.log(`JQL test result for row ${index}:`, result);
+      
+      if (result.success) {
+        setTestResults(prev => ({
+          ...prev,
+          [index]: {
+            success: true,
+            message: `Found ${result.data.total} issues`,
+            issues: result.data.issues
+          }
+        }));
+        
+        // Show success notification
+        alert(`JQL test successful! Found ${result.data.total} issues.`);
+      } else {
+        setTestResults(prev => ({
+          ...prev,
+          [index]: {
+            success: false,
+            message: `Error: ${result.error}`,
+            error: result.error
+          }
+        }));
+        
+        alert(`JQL test failed: ${result.error}`);
+      }
+    } catch (error) {
+      console.error(`Error testing JQL for row ${index}:`, error);
+      setTestResults(prev => ({
+        ...prev,
+        [index]: {
+          success: false,
+          message: `Exception: ${error.message}`,
+          error: error.message
+        }
+      }));
+      
+      alert(`Error testing JQL: ${error.message}`);
+    } finally {
+      setLoadingTests(prev => ({ ...prev, [index]: false }));
+    }
+  };
+
   // Prepare table header
   const head = {
     cells: [
       {
-        key: "field",
-        content: "Field",
-        isSortable: true,
-      },
-      {
-        key: "condition",
-        content: "Condition",
+        key: "jql",
+        content: "JQL Query",
         shouldTruncate: true,
         isSortable: false,
+        width: "70%", // Allocate 70% width to JQL Query column
       },
       {
-        key: "threshold",
-        content: "Threshold",
+        key: "test",
+        content: "Test",
         shouldTruncate: true,
         isSortable: false,
+        width: "15%", // 15% for Test button column
       },
       {
         key: "actions",
         content: "Actions",
         shouldTruncate: true,
         isSortable: false,
+        width: "15%", // 15% for Actions button column
       },
     ],
   };
@@ -63,34 +125,26 @@ const SettingsTable = ({ settings, setSettings }) => {
     key: `row-${index}`,
     cells: [
       {
-        key: `field-${index}`,
+        key: `jql-${index}`,
         content: (
           <Textfield
-            value={setting.field}
-            // @forge/react Textfield onChange provides the new value directly
-            onChange={(value) => handleChange(index, 'field', value)}
-            placeholder="Field"
+            value={setting.jql || ''}
+            onChange={(value) => handleChange(index, 'jql', value)}
+            placeholder="Enter JQL query... (e.g., assignee = currentUser() AND resolution = Unresolved)"
+            style={{ width: '100%' }}
           />
         ),
       },
       {
-        key: `condition-${index}`,
+        key: `test-${index}`,
         content: (
-          <Textfield
-            value={setting.condition}
-            onChange={(value) => handleChange(index, 'condition', value)}
-            placeholder="Condition"
-          />
-        ),
-      },
-      {
-        key: `threshold-${index}`,
-        content: (
-          <Textfield
-            value={setting.threshold}
-            onChange={(value) => handleChange(index, 'threshold', value)}
-            placeholder="Threshold"
-          />
+          <Button 
+            appearance="primary" 
+            onClick={() => testJqlSearch(index, setting.jql)}
+            isDisabled={loadingTests[index] || !setting.jql || !setting.jql.trim()}
+          >
+            {loadingTests[index] ? 'Testing...' : 'Test JQL Search'}
+          </Button>
         ),
       },
       {
@@ -105,13 +159,13 @@ const SettingsTable = ({ settings, setSettings }) => {
   return (
     <Box padding="space.200">
       <DynamicTable
-        caption='Condition Settings'
+        caption='JQL Query Settings'
         head={head}
         rows={rows}
         isFixedSize
       />
       <Box padding="medium" paddingTop="none">
-        <Button appearance="primary" onClick={addRow}>Add New Row</Button>
+        <Button appearance="primary" onClick={addRow}>Add New JQL Query</Button>
       </Box>
     </Box>
   );

@@ -1,5 +1,5 @@
 import Resolver from '@forge/resolver';
-import { api, storage, requestJira, route } from '@forge/api';
+import api, { storage, requestJira, route } from '@forge/api';
 
 const resolver = new Resolver();
 
@@ -105,7 +105,6 @@ resolver.define('saveUserSettings', async ({ payload }) => {
 
 // Get all settings
 resolver.define('getSettings', async () => {
-  log('Fetching user settings from storage');
   const stored = await storage.get('settings');
   const settings = stored || [];
   log('User settings fetched', { 
@@ -118,7 +117,6 @@ resolver.define('getSettings', async () => {
 
 // Get schedule period as Option object
 resolver.define('getschedulePeriod', async () => {
-  log('Fetching schedule period from storage');
   let schedulePeriod = await storage.get('schedulePeriod');
   
   log('Raw schedule period from storage', { 
@@ -307,7 +305,8 @@ export const checkDueDateAlert = async () => {
     
     log('Jira API request body', requestBody);
     
-    const response = await requestJira(route`/rest/api/3/search/jql`, {
+    const jiraApi = api.asUser();
+    const response = await jiraApi.requestJira(route`/rest/api/3/search/jql`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',
@@ -511,93 +510,14 @@ resolver.define('getJqlReferenceData', async () => {
   }
 });
 
-const checkUserExists = async (username) => {
-  try {
-    const response = await requestJira(route`/rest/api/3/user/search?query=${username}`);
-    const users = await response.json();
-    console.log(`Found ${users.length} users matching "${username}":`);
-    users.forEach(user => {
-      console.log(`- ${user.displayName} (${user.name}) - ${user.emailAddress}`);
-    });
-    return users;
-  } catch (error) {
-    console.error('Error searching for user:', error);
-    return [];
-  }
-};
 
-
-const debugAssigneeQuery = async () => {
-  console.log('=== 开始 JQL 查询调试 ===');
-  
-  // 1. 检查当前用户
-  try {
-    const userResponse = await requestJira(route`/rest/api/3/myself`);  
-    console.log(userResponse)
-    const currentUser = await userResponse.json();
-    console.log('1. 当前用户信息:');
-    console.log('   - Display Name:', currentUser.displayName);
-    console.log('   - Account ID:', currentUser.accountId);
-    console.log('   - Name:', currentUser.name);
-    console.log('   - Email:', currentUser.emailAddress);
-  } catch (error) {
-    console.error('获取当前用户信息失败:', error);
-  }
-  
-  // 2. 搜索用户
-  console.log('\n2. 搜索用户 "wangbo":');
-  await checkUserExists('wangbo');
-  
-  // 3. 测试不同的查询条件
-  console.log('\n3. 测试不同的查询条件:');
-  
-  const testQueries = [
-    { name: '原始查询', jql: 'assignee = wangbo AND resolution = Unresolved' },
-    { name: '仅分配人', jql: 'assignee = wangbo' },
-    { name: '仅未解决', jql: 'resolution = Unresolved' },
-    { name: '当前用户的问题', jql: 'assignee = currentUser()' },
-    { name: '所有未分配的问题', jql: 'assignee is empty' },
-    { name: '所有问题', jql: 'order by updated DESC' }
-  ];
-  
-  for (const test of testQueries) {
-    try {
-      const response = await requestJira(route`/rest/api/3/search`, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' },
-        query: {
-          jql: test.jql,
-          maxResults: 3,
-          fields: ['key', 'summary', 'status', 'assignee', 'resolution']
-        }
-      });
-      
-      const data = await response.json();
-
-      
-      if (data.issues && data.issues.length > 0) {
-        data.issues.forEach(issue => {
-          const assignee = issue.fields.assignee;
-          const resolution = issue.fields.resolution;
-          console.log(`   - ${issue.key}: ${issue.fields.summary}`);
-          console.log(`     分配人: ${assignee ? assignee.displayName : '未分配'}`);
-          console.log(`     解决状态: ${resolution ? resolution.name : '未解决'}`);
-        });
-      }
-    } catch (error) {
-      console.error(`   查询失败: ${error.message}`);
-    }
-  }
-  
-  console.log('=== 调试完成 ===');
-};
 
 
 // Enhanced JQL search using POST method
 resolver.define('searchIssuesWithJql', async (req) => {
   
   
-  await debugAssigneeQuery();
+
   const { jql, maxResults = 50, fields = ['key', 'summary', 'status', 'priority', 'assignee', 'duedate', 'updated'] } = req.payload;
   
   log('Processing enhanced JQL search request', { 
@@ -624,7 +544,8 @@ resolver.define('searchIssuesWithJql', async (req) => {
       requestBody: { ...requestBody, jql: requestBody.jql.substring(0, 100) + (requestBody.jql.length > 100 ? '...' : '') }
     });
     
-    const response = await requestJira(route`/rest/api/3/search/jql`, {
+    const jiraApi = api.asUser();
+    const response = await jiraApi.requestJira(route`/rest/api/3/search/jql`, {
       method: 'POST',
       headers: {
         'Accept': 'application/json',

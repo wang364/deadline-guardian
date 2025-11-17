@@ -57,13 +57,13 @@ const SettingsTable = ({ settings, setSettings }) => {
           ...prev,
           [index]: {
             success: true,
-            message: `Found ${result.data.total} issues`,
-            issues: result.data.issues
+            message: `Found ${result.data.issues.length} issues`,
+            issues: result.data.issues.length
           }
         }));
         
         // Show success notification
-        alert(`JQL test successful! Found ${result.data.total} issues.`);
+        alert(`JQL test successful! Found ${result.data.issues.length} issues.`);
       } else {
         setTestResults(prev => ({
           ...prev,

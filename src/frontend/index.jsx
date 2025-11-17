@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, RequiredAsterisk, ErrorMessage } from '@forge/react';
+import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, ErrorMessage } from '@forge/react';
 import { invoke } from '@forge/bridge';
 import SettingsTable from '../components/SettingsTable';
 
@@ -10,6 +10,7 @@ const App = () => {
   const [schedulePeriod, setSchedulePeriod] = useState({ label: 'Daily', value: 'Daily' });
   const [scheduleTime, setScheduleTime] = useState('17:00');
   const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
+  const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('');
   const [webhookError, setWebhookError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
 
@@ -68,12 +69,14 @@ const App = () => {
           { settings: settingsData },
           { schedulePeriod: periodData },
           { scheduleTime: timeData },
-          { url: webhookData }
+          { url: teamsWebhookData },
+          { url: feishuWebhookData }
         ] = await Promise.all([
           invoke('getSettings'),
           invoke('getschedulePeriod'),
           invoke('getscheduleTime'),
-          invoke('getTeamsWebhookUrl')
+          invoke('getTeamsWebhookUrl'),
+          invoke('getFeishuWebhookUrl')
         ]);
         
         setSettings(settingsData || []);
@@ -81,7 +84,8 @@ const App = () => {
         console.log('Setting initial values:', { 
           periodData, 
           timeData,
-          webhookData
+          teamsWebhookData,
+          feishuWebhookData
         });
 
         const normalizedPeriod = normalizePeriod(periodData);
@@ -90,12 +94,14 @@ const App = () => {
         console.log('Setting normalized values:', { 
           normalizedPeriod, 
           normalizedTime,
-          webhookUrl: webhookData
+          teamsWebhookUrl: teamsWebhookData,
+          feishuWebhookUrl: feishuWebhookData
         });
 
         setSchedulePeriod(normalizedPeriod);
         setScheduleTime(normalizedTime);
-        setTeamsWebhookUrl(webhookData || '');
+        setTeamsWebhookUrl(teamsWebhookData || '');
+        setFeishuWebhookUrl(feishuWebhookData || '');
 
       } catch (err) {
         setError(`Failed to load settings: ${err.message}`);
@@ -116,9 +122,18 @@ const App = () => {
       }
       
       // 保存Teams Webhook URL
-      const webhookResult = await invoke('saveTeamsWebhookUrl', { url: teamsWebhookUrl });
-      if (!webhookResult.success) {
-        setWebhookError(webhookResult.message);
+      const teamsWebhookResult = await invoke('saveTeamsWebhookUrl', { teamsWebhookUrl });
+      console.log('Teams webhook save result:', teamsWebhookResult);
+      if (!teamsWebhookResult.success) {
+        setWebhookError(teamsWebhookResult.message);
+        return;
+      }
+      
+      // 保存飞书Webhook URL
+      const feishuWebhookResult = await invoke('saveFeishuWebhookUrl', {  feishuWebhookUrl });
+      console.log('Feishu webhook save result:', feishuWebhookResult);
+      if (!feishuWebhookResult.success) {
+        setWebhookError(feishuWebhookResult.message);
         return;
       }
       
@@ -151,10 +166,23 @@ const App = () => {
 
 
   // Handle Teams Webhook URL change
-  const handleWebhookUrlChange = (e) => {
-    const newUrl = e.target.value;
+  const handleWebhookUrlChange = (value) => {
+    // Forge React Textfield onChange provides the new value directly
+    const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
     console.log('Teams webhook URL changed:', newUrl ? '[REDACTED]' : 'empty');
     setTeamsWebhookUrl(newUrl);
+    // Clear webhook error when user starts typing
+    if (webhookError) {
+      setWebhookError('');
+    }
+  };
+  
+  // Handle Feishu Webhook URL change
+  const handleFeishuWebhookUrlChange = (value) => {
+    // Forge React Textfield onChange provides the new value directly
+    const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
+    console.log('Feishu webhook URL changed:', newUrl ? newUrl : 'empty');
+    setFeishuWebhookUrl(newUrl);
     // Clear webhook error when user starts typing
     if (webhookError) {
       setWebhookError('');
@@ -223,10 +251,32 @@ const App = () => {
             placeholder="https://your-tenant.webhook.office.com/webhookb2/..."
           />
           <Text size="small" color="subdued">
-            Configure your Microsoft Teams webhook URL for notifications
+            Configure your Microsoft Teams webhook URL for notifications (optional)
           </Text>
-          {webhookError && <ErrorMessage>{webhookError}</ErrorMessage>}
         </Box>
+        
+        <Box padding="small">
+          <Label labelFor="feishuWebhookUrl">
+            Feishu Webhook URL
+          </Label>
+          <Textfield
+            id="feishuWebhookUrl"
+            value={feishuWebhookUrl}
+            onChange={handleFeishuWebhookUrlChange}
+            placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
+          />
+          <Text size="small" color="subdued">
+            Configure your Feishu webhook URL for notifications (optional)
+          </Text>
+        </Box>
+        
+        <Box padding="small">
+          <Text size="small" color="subdued">
+            Notifications will be sent to all configured webhook URLs. Leave blank to disable notifications for a specific platform.
+          </Text>
+        </Box>
+        
+        {webhookError && <ErrorMessage>{webhookError}</ErrorMessage>}
         {error && <ErrorMessage>{error}</ErrorMessage>}
       </Box>
 

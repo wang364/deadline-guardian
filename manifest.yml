@@ -30,3 +30,9 @@ permissions:
     - read:jira-work
     - write:jira-work
     - read:jira-user
+  external:
+    fetch:
+      backend:
+        - address: qyapi.weixin.qq.com
+        - address: hooks.slack.com
+        - address: open.feishu.cn

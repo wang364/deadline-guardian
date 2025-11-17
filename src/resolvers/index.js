@@ -1,5 +1,5 @@
 import Resolver from '@forge/resolver';
-import api, { storage, requestJira, route } from '@forge/api';
+import api, { storage, route } from '@forge/api';
 
 const resolver = new Resolver();
 
@@ -358,17 +358,29 @@ export const checkDueDateAlert = async () => {
     log('Issues processed', { totalIssues: issues.length });
     
     if (issues.length > 0) {
-      // 获取配置的Teams Webhook URL
-      log('Checking Teams webhook configuration');
+      // 获取所有配置的webhook URL
+      log('Checking webhook configuration');
       const teamsWebhookUrl = await storage.get('teamsWebhookUrl');
+      const feishuWebhookUrl = await storage.get('feishuWebhookUrl');
       
-      log('Teams webhook configuration check', { 
-        hasWebhook: !!teamsWebhookUrl,
-        webhookUrl: teamsWebhookUrl ? '[REDACTED]' : null
+      log('Webhook configuration check', { 
+        hasTeamsWebhook: !!teamsWebhookUrl,
+        hasFeishuWebhook: !!feishuWebhookUrl,
+        teamsWebhookUrl: teamsWebhookUrl ? '[REDACTED]' : null,
+        feishuWebhookUrl: feishuWebhookUrl ? '[REDACTED]' : null
       });
       
-      if (!teamsWebhookUrl) {
-        log('No Teams webhook URL configured, skipping notification');
+      // 检查是否有配置的webhook
+      const webhooks = [];
+      if (teamsWebhookUrl) {
+        webhooks.push({ url: teamsWebhookUrl, type: 'teams' });
+      }
+      if (feishuWebhookUrl) {
+        webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
+      }
+      
+      if (webhooks.length === 0) {
+        log('No webhook URLs configured, skipping notification');
         return { success: true, issues, skipped: false, notification: 'No webhook configured' };
       }
       
@@ -386,68 +398,157 @@ export const checkDueDateAlert = async () => {
         return `${dueDate} (${diffDays} days remaining)`;
       };
       
-      // 创建更详细的Teams通知消息
-      const alertMessage = {
-        "@type": "MessageCard",
-        "@context": "http://schema.org/extensions",
-        "themeColor": "FF6B35", // 橙色表示警告
-        "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
-        "title": "🔔 Jira Due Date Alert",
-        "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
-        "sections": [{
-          "activityTitle": "📋 Issues Requiring Attention",
-          "facts": issues.map(issue => ({
-            "name": `**${issue.key}** - ${issue.summary}`,
-            "value": `📅 ${formatDueDate(issue.dueDate)}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
-          })),
-          "markdown": true
-        }],
-        "potentialAction": [
-          {
-            "@type": "OpenUri",
-            "name": "View All Issues",
-            "targets": [
+      // 创建通知消息函数
+      const createTeamsMessage = (issues) => {
+        return {
+          "@type": "MessageCard",
+          "@context": "http://schema.org/extensions",
+          "themeColor": "FF6B35", // 橙色表示警告
+          "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
+          "title": "🔔 Jira Due Date Alert",
+          "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
+          "sections": [{
+            "activityTitle": "📋 Issues Requiring Attention",
+            "facts": issues.map(issue => ({
+              "name": `**${issue.key}** - ${issue.summary}`,
+              "value": `📅 ${formatDueDate(issue.dueDate)}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
+            })),
+            "markdown": true
+          }],
+          "potentialAction": [
+            {
+              "@type": "OpenUri",
+              "name": "View All Issues",
+              "targets": [
+                {
+                  "os": "default",
+                  "uri": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
+                }
+              ]
+            }
+          ]
+        };
+      };
+      
+      const createFeishuMessage = (issues) => {
+        const issueList = issues.map(issue => {
+          const dueDateInfo = formatDueDate(issue.dueDate);
+          return `• **${issue.key}** - ${issue.summary}\n  📅 ${dueDateInfo}\n  🎯 Priority: ${issue.priority || 'Not set'}\n  📊 Status: ${issue.status || 'Unknown'}`;
+        }).join('\n\n');
+        
+        return {
+          "msg_type": "interactive",
+          "card": {
+            "config": {
+              "wide_screen_mode": true,
+              "enable_forward": true
+            },
+            "header": {
+              "title": {
+                "tag": "plain_text",
+                "content": "🔔 Jira Due Date Alert"
+              },
+              "template": "orange"
+            },
+            "elements": [
               {
-                "os": "default",
-                "uri": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
+                "tag": "div",
+                "text": {
+                  "tag": "lark_md",
+                  "content": `You have **${issues.length}** Jira issue(s) with approaching due dates:\n\n${issueList}`
+                }
+              },
+              {
+                "tag": "action",
+                "actions": [
+                  {
+                    "tag": "button",
+                    "text": {
+                      "tag": "plain_text",
+                      "content": "View All Issues"
+                    },
+                    "type": "primary",
+                    "url": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
+                  }
+                ]
               }
             ]
           }
-        ]
+        };
       };
       
-      try {
-        log('Sending Teams notification', { 
-          webhookUrl: '[REDACTED]',
-          messageSize: JSON.stringify(alertMessage).length,
-          issueCount: issues.length
-        });
-        
-        const teamsResponse = await api.fetch(teamsWebhookUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(alertMessage),
-        });
-        
-        log('Teams API response received', { 
-          status: teamsResponse.status,
-          statusText: teamsResponse.statusText,
-          ok: teamsResponse.ok
-        });
-        
-        if (!teamsResponse.ok) {
-          const errorText = await teamsResponse.text();
-          log('Teams API error response', { status: teamsResponse.status, errorText });
-          throw new Error(`Teams API request failed: ${teamsResponse.status} ${teamsResponse.statusText}`);
+      // 向所有配置的webhook发送通知
+      const notificationResults = [];
+      
+      for (const webhook of webhooks) {
+        try {
+          let alertMessage = null;
+          
+          if (webhook.type === 'teams') {
+            alertMessage = createTeamsMessage(issues);
+          } else if (webhook.type === 'feishu') {
+            alertMessage = createFeishuMessage(issues);
+          }
+          
+          log(`Sending ${webhook.type} notification`, { 
+            webhookUrl: '[REDACTED]',
+            messageSize: JSON.stringify(alertMessage).length,
+            issueCount: issues.length
+          });
+          
+          const response = await api.fetch(webhook.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(alertMessage),
+          });
+          
+          log(`${webhook.type} API response received`, { 
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            log(`${webhook.type} API error response`, { status: response.status, errorText });
+            throw new Error(`${webhook.type} API request failed: ${response.status} ${response.statusText}`);
+          }
+          
+          log(`${webhook.type} alert sent successfully`, { issueCount: issues.length });
+          notificationResults.push({ type: webhook.type, success: true, message: `Sent successfully via ${webhook.type}` });
+        } catch (notificationError) {
+          log(`Failed to send ${webhook.type} notification:`, { error: notificationError.message, stack: notificationError.stack });
+          notificationResults.push({ type: webhook.type, success: false, message: `Failed to send ${webhook.type} notification`, error: notificationError.message });
         }
-        
-        log('Alert sent successfully', { issueCount: issues.length });
-        return { success: true, issues, skipped: false, notification: 'Sent successfully' };
-      } catch (notificationError) {
-        log('Failed to send Teams notification:', { error: notificationError.message, stack: notificationError.stack });
-        return { success: true, issues, skipped: false, notification: 'Failed to send notification', error: notificationError.message };
+      }
+      
+      // 汇总通知结果
+      const successfulNotifications = notificationResults.filter(result => result.success);
+      const failedNotifications = notificationResults.filter(result => !result.success);
+      
+      if (successfulNotifications.length > 0) {
+        log(`Notifications sent successfully to ${successfulNotifications.length} webhook(s)`, { 
+          successful: successfulNotifications.map(n => n.type),
+          failed: failedNotifications.map(n => n.type)
+        });
+        return { 
+          success: true, 
+          issues, 
+          skipped: false, 
+          notification: `Sent to ${successfulNotifications.length} webhook(s)`, 
+          details: { successful: successfulNotifications, failed: failedNotifications }
+        };
+      } else {
+        log('All notification attempts failed');
+        return { 
+          success: true, 
+          issues, 
+          skipped: false, 
+          notification: 'Failed to send notifications', 
+          details: { failed: failedNotifications }
+        };
       }
     } else {
       log('No issues found with upcoming due dates');
@@ -640,13 +741,15 @@ resolver.define('getTeamsWebhookUrl', async () => {
 
 // Save Teams Webhook URL
 // Save Teams Webhook URL
-resolver.define('saveTeamsWebhookUrl', async ({ url }) => {
-  log('Saving Teams webhook URL', { 
-    receivedUrl: url ? '[REDACTED]' : null,
-    urlLength: url ? url.length : 0
+resolver.define('saveTeamsWebhookUrl', async ({ payload }) => {
+  log('Saving user settings', { 
+    payloadType: typeof payload,
+    payloadKeys: payload ? Object.keys(payload) : []
   });
+  const { teamsWebhookUrl='https://your-tenant.webhook.office.com/webhookb2/' } = payload;
+  log(teamsWebhookUrl)
   
-  if (!url || url.trim() === '') {
+  if (!teamsWebhookUrl || teamsWebhookUrl.trim() === '') {
     log('Empty URL provided, deleting stored webhook');
     await storage.delete('teamsWebhookUrl');
     log('Teams webhook URL deleted successfully');
@@ -655,21 +758,69 @@ resolver.define('saveTeamsWebhookUrl', async ({ url }) => {
   
   // Basic URL validation
   log('Validating Teams webhook URL format');
-  if (!url.startsWith('https://')) {
-    log('Invalid Teams webhook URL format', { url: url.substring(0, 50) + '...' });
+  if (!teamsWebhookUrl.startsWith('https://')) {
+    log('Invalid Teams webhook URL format', { url: teamsWebhookUrl.substring(0, 50) + '...' });
     return { success: false, message: 'URL must start with https://' };
   }
   
   // Additional validation for Teams webhook URLs
-  if (!url.includes('webhook') && !url.includes('office.com')) {
-    log('Suspicious Teams webhook URL format', { url: url.substring(0, 50) + '...' });
+  if (!teamsWebhookUrl.includes('webhook') && !teamsWebhookUrl.includes('office.com')) {
+    log('Suspicious Teams webhook URL format', { url: teamsWebhookUrl.substring(0, 50) + '...' });
     log('Warning: URL does not contain typical Teams webhook patterns');
   }
   
-  await storage.set('teamsWebhookUrl', url);
-  log('Teams webhook URL saved successfully', { urlLength: url.length });
+  await storage.set('teamsWebhookUrl', teamsWebhookUrl);
+  log('Teams webhook URL saved successfully', { urlLength: teamsWebhookUrl.length });
   return { success: true, message: 'Webhook URL saved' };
 });
+
+// Get Feishu Webhook URL
+resolver.define('getFeishuWebhookUrl', async () => {
+  log('Fetching Feishu webhook URL from storage');
+  const url = await storage.get('feishuWebhookUrl');
+  log('Feishu webhook URL fetched', { 
+    hasUrl: !!url,
+    urlLength: url ? url.length : 0,
+    urlPreview: url ? `${url.substring(0, 20)}...` : null
+  });
+  return { url };
+});
+
+// Save Feishu Webhook URL
+resolver.define('saveFeishuWebhookUrl', async ({ payload }) => {
+  log('Saving user settings', { 
+    payloadType: typeof payload,
+    payloadKeys: payload ? Object.keys(payload) : []
+  });
+  const { feishuWebhookUrl='https://open.feishu.cn/open-apis/bot/v2/hook/' } = payload;
+  log(feishuWebhookUrl)
+  
+  if (!feishuWebhookUrl || feishuWebhookUrl.trim() === '') {
+    log('Empty URL provided, deleting stored webhook');
+    await storage.delete('feishuWebhookUrl');
+    log('Feishu webhook URL deleted successfully');
+    return { success: true, message: 'Webhook URL deleted' };
+  }
+  
+  // Basic URL validation
+  log('Validating Feishu webhook URL format');
+  if (!feishuWebhookUrl.startsWith('https://')) {
+    log('Invalid Feishu webhook URL format', { url: url.substring(0, 50) + '...' });
+    return { success: false, message: 'URL must start with https://' };
+  }
+  
+  // Additional validation for Feishu webhook URLs
+  if (!feishuWebhookUrl.includes('open.feishu.cn')) {
+    log('Suspicious Feishu webhook URL format', { url: url.substring(0, 50) + '...' });
+    log('Warning: URL does not contain typical Feishu webhook patterns');
+  }
+  
+  await storage.set('feishuWebhookUrl', feishuWebhookUrl);
+  log('Feishu webhook URL saved successfully', { urlLength: feishuWebhookUrl.length });
+  return { success: true, message: 'Webhook URL saved' };
+});
+
+
 
 // Save schedule period
 resolver.define('saveschedulePeriod', async (req) => {

@@ -9,7 +9,7 @@ const App = () => {
   const [error, setError] = useState(undefined);
   const [schedulePeriod, setSchedulePeriod] = useState({ label: 'Daily', value: 'Daily' });
   const [scheduleTime, setScheduleTime] = useState('17:00');
-  const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
+  //const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
   const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('');
   const [webhookError, setWebhookError] = useState('');
   const [isLoading, setIsLoading] = useState(true);
@@ -69,13 +69,13 @@ const App = () => {
           { settings: settingsData },
           { schedulePeriod: periodData },
           { scheduleTime: timeData },
-          { url: teamsWebhookData },
+          //{ url: teamsWebhookData },
           { url: feishuWebhookData }
         ] = await Promise.all([
           invoke('getSettings'),
           invoke('getschedulePeriod'),
           invoke('getscheduleTime'),
-          invoke('getTeamsWebhookUrl'),
+          //invoke('getTeamsWebhookUrl'),
           invoke('getFeishuWebhookUrl')
         ]);
         
@@ -84,7 +84,7 @@ const App = () => {
         console.log('Setting initial values:', { 
           periodData, 
           timeData,
-          teamsWebhookData,
+          //teamsWebhookData,
           feishuWebhookData
         });
 
@@ -94,13 +94,13 @@ const App = () => {
         console.log('Setting normalized values:', { 
           normalizedPeriod, 
           normalizedTime,
-          teamsWebhookUrl: teamsWebhookData,
+          // teamsWebhookUrl: teamsWebhookData,
           feishuWebhookUrl: feishuWebhookData
         });
 
         setSchedulePeriod(normalizedPeriod);
         setScheduleTime(normalizedTime);
-        setTeamsWebhookUrl(teamsWebhookData || '');
+        // setTeamsWebhookUrl(teamsWebhookData || '');
         setFeishuWebhookUrl(feishuWebhookData || '');
 
       } catch (err) {
@@ -122,12 +122,12 @@ const App = () => {
       }
       
       // 保存Teams Webhook URL
-      const teamsWebhookResult = await invoke('saveTeamsWebhookUrl', { teamsWebhookUrl });
-      console.log('Teams webhook save result:', teamsWebhookResult);
-      if (!teamsWebhookResult.success) {
-        setWebhookError(teamsWebhookResult.message);
-        return;
-      }
+      // const teamsWebhookResult = await invoke('saveTeamsWebhookUrl', { teamsWebhookUrl });
+      // console.log('Teams webhook save result:', teamsWebhookResult);
+      // if (!teamsWebhookResult.success) {
+      //   setWebhookError(teamsWebhookResult.message);
+      //   return;
+      // }
       
       // 保存飞书Webhook URL
       const feishuWebhookResult = await invoke('saveFeishuWebhookUrl', {  feishuWebhookUrl });
@@ -166,16 +166,16 @@ const App = () => {
 
 
   // Handle Teams Webhook URL change
-  const handleWebhookUrlChange = (value) => {
-    // Forge React Textfield onChange provides the new value directly
-    const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
-    console.log('Teams webhook URL changed:', newUrl ? '[REDACTED]' : 'empty');
-    setTeamsWebhookUrl(newUrl);
-    // Clear webhook error when user starts typing
-    if (webhookError) {
-      setWebhookError('');
-    }
-  };
+  // const handleWebhookUrlChange = (value) => {
+  //   // Forge React Textfield onChange provides the new value directly
+  //   const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
+  //   console.log('Teams webhook URL changed:', newUrl ? '[REDACTED]' : 'empty');
+  //   setTeamsWebhookUrl(newUrl);
+  //   // Clear webhook error when user starts typing
+  //   if (webhookError) {
+  //     setWebhookError('');
+  //   }
+  // };
   
   // Handle Feishu Webhook URL change
   const handleFeishuWebhookUrlChange = (value) => {
@@ -208,9 +208,7 @@ const App = () => {
       <SettingsTable 
         settings={settings}
         setSettings={setSettings}
-      />
-      {error && <ErrorMessage>{error}</ErrorMessage>}
-      
+      />      
 
       <Box padding="space.200" borderWidth="1px" borderStyle="solid" borderColor="gray">
         <Text size="large" weight="bold">Schedule Settings</Text>
@@ -225,9 +223,6 @@ const App = () => {
             onChange={(option) => handlePeriodChange(option)}
             options={periodOptions}
           />
-          <Text size="small" color="subdued">
-            Current value: {schedulePeriod ? `${schedulePeriod.label} (${schedulePeriod.value})` : 'None'}
-          </Text>
         </Box>
         <Box padding="small">
           <Label labelFor="scheduleTime">
@@ -240,7 +235,7 @@ const App = () => {
             onChange={(e) => handleTimeChange(e)}
           />
         </Box>
-        <Box padding="small">
+        {/* <Box padding="small">
           <Label labelFor="teamsWebhookUrl">
             Teams Webhook URL
           </Label>
@@ -253,7 +248,7 @@ const App = () => {
           <Text size="small" color="subdued">
             Configure your Microsoft Teams webhook URL for notifications (optional)
           </Text>
-        </Box>
+        </Box> */}
         
         <Box padding="small">
           <Label labelFor="feishuWebhookUrl">

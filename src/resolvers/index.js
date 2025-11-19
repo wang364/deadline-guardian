@@ -227,6 +227,332 @@ resolver.define('getscheduleTime', async () => {
 });
 
 // Check and trigger alerts - 用于scheduledTrigger的函数
+// 执行Jira搜索的通用函数
+const executeJiraSearch = async (jql) => {
+  try {
+    log('Making Jira API POST request for enhanced JQL search', { 
+      endpoint: '/rest/api/3/search/jql', 
+      jql, 
+      maxResults: 50,
+      fields: 'key,summary,duedate,assignee,status,priority,updated'
+    });
+    
+    // 使用POST方法进行增强JQL搜索，支持更复杂的查询
+    const requestBody = {
+      jql: jql,
+      maxResults: 50,
+      fields: ['key', 'summary', 'duedate', 'assignee', 'status', 'priority', 'updated'],
+    };
+    
+    log('Jira API request body', requestBody);
+    
+    const jiraApi = api.asApp();
+    const response = await jiraApi.requestJira(route`/rest/api/3/search/jql`, {
+      method: 'POST',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(requestBody),
+    });
+    
+    // 获取完整的response body文本用于调试
+    const responseBodyText = await response.text();
+    log('Jira API response body (raw text):', responseBodyText);
+    
+    // 创建新的response对象用于JSON解析
+    const responseClone = new Response(responseBodyText, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+        
+    if (!response.ok) {
+      log('Jira API error response', { status: response.status, responseBodyText });
+      throw new Error(`Jira API request failed: ${response.status} ${response.statusText} - ${responseBodyText}`);
+    }
+    
+    const data = await responseClone.json();
+    log('Enhanced JQL search data parsed successfully', { 
+      totalIssues: data.total || 0,
+      maxResults: data.maxResults || 0,
+      issuesCount: data.issues ? data.issues.length : 0
+    });
+    
+    const issues = data.issues.map(issue => {
+      const issueData = {
+        key: issue.key,
+        summary: issue.fields.summary,
+        status: issue.fields.status?.name,
+        priority: issue.fields.priority?.name,
+        assignee: issue.fields.assignee?.displayName,
+        dueDate: issue.fields.duedate,
+        updated: issue.fields.updated,
+        fields: {}
+      };
+      
+      // 包含请求的所有字段
+      ['key', 'summary', 'duedate', 'assignee', 'status', 'priority', 'updated'].forEach(field => {
+        if (issue.fields[field] !== undefined) {
+          issueData.fields[field] = issue.fields[field];
+        }
+      });
+      
+      log('Processing search result issue', { 
+        key: issueData.key,
+        hasDueDate: !!issueData.dueDate,
+        status: issueData.status,
+        priority: issueData.priority
+      });
+      
+      return issueData;
+    });
+    
+    log('Enhanced JQL search completed successfully', { 
+      totalResults: data.total,
+      returnedIssues: issues.length,
+      maxResults: data.maxResults
+    });
+
+    log('Issues processed', { totalIssues: issues.length });
+    
+    return { success: true, issues, skipped: false };
+  } catch (err) {
+    log('Error in executeJiraSearch', { error: err.message, stack: err.stack });
+    return { success: false, error: err.message, issues: [] };
+  }
+};
+
+// 处理通知的通用函数
+const processNotification = async (issues) => {
+  try {
+    if (issues.length === 0) {
+      log('No issues to process for notification');
+      return { success: true, issues: [], skipped: false, notification: 'No issues found' };
+    }
+    
+    // 获取所有配置的webhook URL
+    log('Checking webhook configuration');
+    const teamsWebhookUrl = await storage.get('teamsWebhookUrl');
+    const feishuWebhookUrl = await storage.get('feishuWebhookUrl');
+    
+    log('Webhook configuration check', { 
+      hasTeamsWebhook: !!teamsWebhookUrl,
+      hasFeishuWebhook: !!feishuWebhookUrl,
+      teamsWebhookUrl: teamsWebhookUrl ? '[REDACTED]' : null,
+      feishuWebhookUrl: feishuWebhookUrl ? '[REDACTED]' : null
+    });
+    
+    // 检查是否有配置的webhook
+    const webhooks = [];
+    if (teamsWebhookUrl) {
+      webhooks.push({ url: teamsWebhookUrl, type: 'teams' });
+    }
+    if (feishuWebhookUrl) {
+      webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
+    }
+    
+    if (webhooks.length === 0) {
+      log('No webhook URLs configured, skipping notification');
+      return { success: true, issues, skipped: false, notification: 'No webhook configured' };
+    }
+    
+    // 格式化到期日期
+    const formatDueDate = (dueDate) => {
+      if (!dueDate) return 'No due date';
+      const date = new Date(dueDate);
+      const today = new Date();
+      const diffTime = date - today;
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+      
+      if (diffDays < 0) return `${dueDate} (Overdue)`;
+      if (diffDays === 0) return `${dueDate} (Due today)`;
+      if (diffDays === 1) return `${dueDate} (Due tomorrow)`;
+      return `${dueDate} (${diffDays} days remaining)`;
+    };
+    
+    // 创建通知消息函数
+    const createTeamsMessage = (issues) => {
+      return {
+        "@type": "MessageCard",
+        "@context": "http://schema.org/extensions",
+        "themeColor": "FF6B35", // 橙色表示警告
+        "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
+        "title": "🔔 Jira Due Date Alert",
+        "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
+        "sections": [{
+          "activityTitle": "📋 Issues Requiring Attention",
+          "facts": issues.map(issue => ({
+            "name": `**${issue.key}** - ${issue.summary}`,
+            "value": `📅 ${formatDueDate(issue.dueDate)}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
+          })),
+          "markdown": true
+        }],
+        "potentialAction": [
+          {
+            "@type": "OpenUri",
+            "name": "View All Issues",
+            "targets": [
+              {
+                "os": "default",
+                "uri": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
+              }
+            ]
+          }
+        ]
+      };
+    };
+    
+    const createFeishuMessage = (issues) => {
+      const issueList = issues.map(issue => {
+        const dueDateInfo = formatDueDate(issue.dueDate);
+        return `• **${issue.key}** - ${issue.summary}\n  📅 ${dueDateInfo}\n  🎯 Priority: ${issue.priority || 'Not set'}\n  📊 Status: ${issue.status || 'Unknown'}`;
+      }).join('\n\n');
+      
+      return {
+        "msg_type": "interactive",
+        "card": {
+          "config": {
+            "wide_screen_mode": true,
+            "enable_forward": true
+          },
+          "header": {
+            "title": {
+              "tag": "plain_text",
+              "content": "🔔 Jira Due Date Alert"
+            },
+            "template": "orange"
+          },
+          "elements": [
+            {
+              "tag": "div",
+              "text": {
+                "tag": "lark_md",
+                "content": `You have **${issues.length}** Jira issue(s) with approaching due dates:\n\n${issueList}`
+              }
+            },
+            {
+              "tag": "action",
+              "actions": [
+                {
+                  "tag": "button",
+                  "text": {
+                    "tag": "plain_text",
+                    "content": "View All Issues"
+                  },
+                  "type": "primary",
+                  "url": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
+                }
+              ]
+            }
+          ]
+        }
+      };
+    };
+    
+    // 向所有配置的webhook发送通知
+    const notificationResults = [];
+    
+    for (const webhook of webhooks) {
+      try {
+        let alertMessage = null;
+        
+        if (webhook.type === 'teams') {
+          alertMessage = createTeamsMessage(issues);
+        } else if (webhook.type === 'feishu') {
+          alertMessage = createFeishuMessage(issues);
+        }
+        
+        if (alertMessage) {
+          log(`Sending notification to ${webhook.type} webhook`, { 
+            webhookType: webhook.type,
+            issuesCount: issues.length,
+            messageType: typeof alertMessage
+          });
+          
+          const response = await fetch(webhook.url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(alertMessage),
+          });
+          
+          if (response.ok) {
+            log(`Notification sent successfully to ${webhook.type}`);
+            notificationResults.push({ 
+              type: webhook.type, 
+              success: true, 
+              status: response.status 
+            });
+          } else {
+            log(`Failed to send notification to ${webhook.type}`, { 
+              status: response.status,
+              statusText: response.statusText 
+            });
+            notificationResults.push({ 
+              type: webhook.type, 
+              success: false, 
+              status: response.status,
+              error: response.statusText 
+            });
+          }
+        }
+      } catch (error) {
+        log(`Error sending notification to ${webhook.type}`, { 
+          error: error.message,
+          webhookType: webhook.type 
+        });
+        notificationResults.push({ 
+          type: webhook.type, 
+          success: false, 
+          error: error.message 
+        });
+      }
+    }
+    
+    // 检查通知结果
+    const successfulNotifications = notificationResults.filter(r => r.success);
+    const failedNotifications = notificationResults.filter(r => !r.success);
+    
+    log('Notification results', { 
+      total: notificationResults.length,
+      successful: successfulNotifications.length,
+      failed: failedNotifications.length,
+      failedTypes: failedNotifications.map(f => f.type)
+    });
+    
+    if (successfulNotifications.length === 0) {
+      log('All notifications failed');
+      return { 
+        success: false, 
+        issues, 
+        skipped: false, 
+        notification: 'All notifications failed',
+        notificationResults 
+      };
+    }
+    
+    log('Notification process completed successfully');
+    return { 
+      success: true, 
+      issues, 
+      skipped: false, 
+      notification: `Notifications sent to ${successfulNotifications.length} webhook(s)`,
+      notificationResults 
+    };
+  } catch (err) {
+    log('Error in processNotification', { error: err.message, stack: err.stack });
+    return { 
+      success: false, 
+      issues, 
+      skipped: false, 
+      notification: 'Error processing notifications',
+      error: err.message 
+    };
+  }
+};
+
 export const checkDueDateAlert = async () => {
   try {
     // 获取用户设置的调度周期和时间
@@ -286,339 +612,74 @@ export const checkDueDateAlert = async () => {
     
     log('Running scheduled check', { period: safeSchedulePeriod, time: safeScheduleTime });
     
-    // 执行实际的Jira检查 - 使用POST方法进行增强JQL搜索
-    const jql = 'assignee = currentUser() AND resolution = Unresolved AND duedate <= 7d AND duedate >= now() order by duedate ASC';
-    
-    log('Making Jira API POST request for enhanced JQL search', { 
-      endpoint: '/rest/api/3/search/jql', 
-      jql, 
-      maxResults: 50,
-      fields: 'key,summary,duedate,assignee,status,priority,updated'
+    // 从storage中获取用户配置的JQL查询条件
+    const settings = await storage.get('settings');
+    log('Retrieved JQL settings from storage', { 
+      hasSettings: !!settings,
+      settingsCount: settings ? settings.length : 0,
+      settings: settings ? settings.map(s => ({ hasJql: !!s.jql, jqlLength: s.jql ? s.jql.length : 0 })) : []
     });
     
-    // 使用POST方法进行增强JQL搜索，支持更复杂的查询
-    const requestBody = {
-      jql: jql,
-      maxResults: 50,
-      fields: ['key', 'summary', 'duedate', 'assignee', 'status', 'priority', 'updated'],
-    };
-    
-    log('Jira API request body', requestBody);
-    
-    const jiraApi = api.asUser();
-    const response = await jiraApi.requestJira(route`/rest/api/3/search/jql`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
-    
-    log('Jira API response received', { 
-      status: response.status, 
-      statusText: response.statusText,
-      ok: response.ok,
-      headers: Object.fromEntries(response.headers.entries())
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      log('Jira API error response', { status: response.status, errorText });
-      throw new Error(`Jira API request failed: ${response.status} ${response.statusText} - ${errorText}`);
+    // 如果没有配置JQL查询，使用默认查询
+    if (!settings || settings.length === 0 || !settings.some(s => s.jql && s.jql.trim())) {
+      log('No JQL settings found, using default query');
+      const defaultJql = 'assignee = currentUser() AND resolution = Unresolved AND duedate <= 7d AND duedate >= now() order by duedate ASC';
+      const searchResult = await executeJiraSearch(defaultJql);
+      if (searchResult.success && searchResult.issues.length > 0) {
+        return await processNotification(searchResult.issues);
+      }
+      return searchResult;
     }
     
-    const data = await response.json();
-    log('Jira API data parsed successfully', { 
-      totalIssues: data.total || 0,
-      maxResults: data.maxResults || 0,
-      issuesCount: data.issues ? data.issues.length : 0
-    });
-    
-    const issues = data.issues.map(issue => {
-      const issueData = {
-        key: issue.key,
-        summary: issue.fields.summary,
-        dueDate: issue.fields.duedate,
-        status: issue.fields.status?.name,
-        priority: issue.fields.priority?.name,
-        assignee: issue.fields.assignee?.displayName,
-      };
-      
-      log('Processing issue', { 
-        key: issueData.key, 
-        hasDueDate: !!issueData.dueDate,
-        status: issueData.status,
-        priority: issueData.priority
-      });
-      
-      return issueData;
-    });
-    
-    log('Issues processed', { totalIssues: issues.length });
-    
-    if (issues.length > 0) {
-      // 获取所有配置的webhook URL
-      log('Checking webhook configuration');
-      const teamsWebhookUrl = await storage.get('teamsWebhookUrl');
-      const feishuWebhookUrl = await storage.get('feishuWebhookUrl');
-      
-      log('Webhook configuration check', { 
-        hasTeamsWebhook: !!teamsWebhookUrl,
-        hasFeishuWebhook: !!feishuWebhookUrl,
-        teamsWebhookUrl: teamsWebhookUrl ? '[REDACTED]' : null,
-        feishuWebhookUrl: feishuWebhookUrl ? '[REDACTED]' : null
-      });
-      
-      // 检查是否有配置的webhook
-      const webhooks = [];
-      if (teamsWebhookUrl) {
-        webhooks.push({ url: teamsWebhookUrl, type: 'teams' });
-      }
-      if (feishuWebhookUrl) {
-        webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
-      }
-      
-      if (webhooks.length === 0) {
-        log('No webhook URLs configured, skipping notification');
-        return { success: true, issues, skipped: false, notification: 'No webhook configured' };
-      }
-      
-      // 格式化到期日期
-      const formatDueDate = (dueDate) => {
-        if (!dueDate) return 'No due date';
-        const date = new Date(dueDate);
-        const today = new Date();
-        const diffTime = date - today;
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        
-        if (diffDays < 0) return `${dueDate} (Overdue)`;
-        if (diffDays === 0) return `${dueDate} (Due today)`;
-        if (diffDays === 1) return `${dueDate} (Due tomorrow)`;
-        return `${dueDate} (${diffDays} days remaining)`;
-      };
-      
-      // 创建通知消息函数
-      const createTeamsMessage = (issues) => {
-        return {
-          "@type": "MessageCard",
-          "@context": "http://schema.org/extensions",
-          "themeColor": "FF6B35", // 橙色表示警告
-          "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
-          "title": "🔔 Jira Due Date Alert",
-          "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
-          "sections": [{
-            "activityTitle": "📋 Issues Requiring Attention",
-            "facts": issues.map(issue => ({
-              "name": `**${issue.key}** - ${issue.summary}`,
-              "value": `📅 ${formatDueDate(issue.dueDate)}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
-            })),
-            "markdown": true
-          }],
-          "potentialAction": [
-            {
-              "@type": "OpenUri",
-              "name": "View All Issues",
-              "targets": [
-                {
-                  "os": "default",
-                  "uri": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
-                }
-              ]
-            }
-          ]
-        };
-      };
-      
-      const createFeishuMessage = (issues) => {
-        const issueList = issues.map(issue => {
-          const dueDateInfo = formatDueDate(issue.dueDate);
-          return `• **${issue.key}** - ${issue.summary}\n  📅 ${dueDateInfo}\n  🎯 Priority: ${issue.priority || 'Not set'}\n  📊 Status: ${issue.status || 'Unknown'}`;
-        }).join('\n\n');
-        
-        return {
-          "msg_type": "interactive",
-          "card": {
-            "config": {
-              "wide_screen_mode": true,
-              "enable_forward": true
-            },
-            "header": {
-              "title": {
-                "tag": "plain_text",
-                "content": "🔔 Jira Due Date Alert"
-              },
-              "template": "orange"
-            },
-            "elements": [
-              {
-                "tag": "div",
-                "text": {
-                  "tag": "lark_md",
-                  "content": `You have **${issues.length}** Jira issue(s) with approaching due dates:\n\n${issueList}`
-                }
-              },
-              {
-                "tag": "action",
-                "actions": [
-                  {
-                    "tag": "button",
-                    "text": {
-                      "tag": "plain_text",
-                      "content": "View All Issues"
-                    },
-                    "type": "primary",
-                    "url": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
-                  }
-                ]
-              }
-            ]
-          }
-        };
-      };
-      
-      // 向所有配置的webhook发送通知
-      const notificationResults = [];
-      
-      for (const webhook of webhooks) {
+    // 执行所有配置的JQL查询
+    const results = [];
+    for (const setting of settings) {
+      if (setting.jql && setting.jql.trim()) {
         try {
-          let alertMessage = null;
-          
-          if (webhook.type === 'teams') {
-            alertMessage = createTeamsMessage(issues);
-          } else if (webhook.type === 'feishu') {
-            alertMessage = createFeishuMessage(issues);
-          }
-          
-          log(`Sending ${webhook.type} notification`, { 
-            webhookUrl: '[REDACTED]',
-            messageSize: JSON.stringify(alertMessage).length,
-            issueCount: issues.length
+          log('Executing JQL query from settings', { 
+            jql: setting.jql.substring(0, 100) + (setting.jql.length > 100 ? '...' : ''),
+            jqlLength: setting.jql.length
           });
           
-          const response = await api.fetch(webhook.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(alertMessage),
+          const result = await executeJiraSearch(setting.jql);
+          results.push(result);
+        } catch (error) {
+          log('Error executing JQL query from settings', { 
+            jql: setting.jql.substring(0, 100) + (setting.jql.length > 100 ? '...' : ''),
+            error: error.message
           });
-          
-          log(`${webhook.type} API response received`, { 
-            status: response.status,
-            statusText: response.statusText,
-            ok: response.ok
-          });
-          
-          if (!response.ok) {
-            const errorText = await response.text();
-            log(`${webhook.type} API error response`, { status: response.status, errorText });
-            throw new Error(`${webhook.type} API request failed: ${response.status} ${response.statusText}`);
-          }
-          
-          log(`${webhook.type} alert sent successfully`, { issueCount: issues.length });
-          notificationResults.push({ type: webhook.type, success: true, message: `Sent successfully via ${webhook.type}` });
-        } catch (notificationError) {
-          log(`Failed to send ${webhook.type} notification:`, { error: notificationError.message, stack: notificationError.stack });
-          notificationResults.push({ type: webhook.type, success: false, message: `Failed to send ${webhook.type} notification`, error: notificationError.message });
+          results.push({ success: false, error: error.message, jql: setting.jql });
         }
       }
-      
-      // 汇总通知结果
-      const successfulNotifications = notificationResults.filter(result => result.success);
-      const failedNotifications = notificationResults.filter(result => !result.success);
-      
-      if (successfulNotifications.length > 0) {
-        log(`Notifications sent successfully to ${successfulNotifications.length} webhook(s)`, { 
-          successful: successfulNotifications.map(n => n.type),
-          failed: failedNotifications.map(n => n.type)
-        });
-        return { 
-          success: true, 
-          issues, 
-          skipped: false, 
-          notification: `Sent to ${successfulNotifications.length} webhook(s)`, 
-          details: { successful: successfulNotifications, failed: failedNotifications }
-        };
-      } else {
-        log('All notification attempts failed');
-        return { 
-          success: true, 
-          issues, 
-          skipped: false, 
-          notification: 'Failed to send notifications', 
-          details: { failed: failedNotifications }
-        };
-      }
-    } else {
-      log('No issues found with upcoming due dates');
+    }
+    
+    // 合并所有成功的结果
+    const allIssues = results
+      .filter(result => result.success && result.issues)
+      .flatMap(result => result.issues);
+    
+    log('Combined results from all JQL queries', { 
+      totalQueries: settings.length,
+      successfulQueries: results.filter(r => r.success).length,
+      failedQueries: results.filter(r => !r.success).length,
+      totalIssues: allIssues.length
+    });
+    
+    if (allIssues.length === 0) {
+      log('No issues found from any JQL query');
       return { success: true, issues: [], skipped: false, notification: 'No issues found' };
     }
     
-    return { success: true, issues, skipped: false };
+    // 继续处理通知逻辑
+    return await processNotification(allIssues);
   } catch (err) {
     log('Error checking due date alerts:', { error: err.message, stack: err.stack });
     throw err;
   }
 };
 
-// Get JQL reference data to help with query building
-resolver.define('getJqlReferenceData', async () => {
-  try {
-    log('Fetching JQL reference data from /rest/api/3/jql/autocompletedata');
-    const jiraApi = api.asUser();
-    const response = await jiraApi.requestJira(route`/rest/api/3/jql/autocompletedata`, {
-      method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-      },
-    });
-    
-    log('JQL reference data API response received', { 
-      status: response.status, 
-      statusText: response.statusText,
-      ok: response.ok,
-      headers: Object.fromEntries(response.headers.entries())
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      log('JQL reference data API error response', { status: response.status, errorText });
-      throw new Error(`Jira API request failed: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-    
-    const data = await response.json();
-    log('JQL reference data parsed successfully', { 
-      fieldNamesCount: data.visibleFieldNames ? data.visibleFieldNames.length : 0,
-      functionNamesCount: data.visibleFunctionNames ? data.visibleFunctionNames.length : 0,
-      reservedWordsCount: data.jqlReservedWords ? data.jqlReservedWords.length : 0
-    });
-    
-    return {
-      success: true,
-      data: {
-        visibleFieldNames: data.visibleFieldNames || [],
-        visibleFunctionNames: data.visibleFunctionNames || [],
-        jqlReservedWords: data.jqlReservedWords || [],
-      }
-    };
-  } catch (err) {
-    log('Error fetching JQL reference data:', { error: err.message, stack: err.stack });
-    return {
-      success: false,
-      error: err.message
-    };
-  }
-});
-
-
-
-
 // Enhanced JQL search using POST method
 resolver.define('searchIssuesWithJql', async (req) => {
-  
-  
-
   const { jql, maxResults = 50, fields = ['key', 'summary', 'status', 'priority', 'assignee', 'duedate', 'updated'] } = req.payload;
   
   log('Processing enhanced JQL search request', { 
@@ -645,7 +706,7 @@ resolver.define('searchIssuesWithJql', async (req) => {
       requestBody: { ...requestBody, jql: requestBody.jql.substring(0, 100) + (requestBody.jql.length > 100 ? '...' : '') }
     });
     
-    const jiraApi = api.asUser();
+    const jiraApi = api.asApp();
     const response = await jiraApi.requestJira(route`/rest/api/3/search/jql`, {
       method: 'POST',
       headers: {
@@ -728,51 +789,51 @@ resolver.define('searchIssuesWithJql', async (req) => {
 });
 
 // Get Teams Webhook URL
-resolver.define('getTeamsWebhookUrl', async () => {
-  log('Fetching Teams webhook URL from storage');
-  const url = await storage.get('teamsWebhookUrl');
-  log('Teams webhook URL fetched', { 
-    hasUrl: !!url,
-    urlLength: url ? url.length : 0,
-    urlPreview: url ? `${url.substring(0, 20)}...` : null
-  });
-  return { url };
-});
+// resolver.define('getTeamsWebhookUrl', async () => {
+//   log('Fetching Teams webhook URL from storage');
+//   const url = await storage.get('teamsWebhookUrl');
+//   log('Teams webhook URL fetched', { 
+//     hasUrl: !!url,
+//     urlLength: url ? url.length : 0,
+//     urlPreview: url ? `${url.substring(0, 20)}...` : null
+//   });
+//   return { url };
+// });
 
 // Save Teams Webhook URL
 // Save Teams Webhook URL
-resolver.define('saveTeamsWebhookUrl', async ({ payload }) => {
-  log('Saving user settings', { 
-    payloadType: typeof payload,
-    payloadKeys: payload ? Object.keys(payload) : []
-  });
-  const { teamsWebhookUrl='https://your-tenant.webhook.office.com/webhookb2/' } = payload;
-  log(teamsWebhookUrl)
-  
-  if (!teamsWebhookUrl || teamsWebhookUrl.trim() === '') {
-    log('Empty URL provided, deleting stored webhook');
-    await storage.delete('teamsWebhookUrl');
-    log('Teams webhook URL deleted successfully');
-    return { success: true, message: 'Webhook URL deleted' };
-  }
-  
-  // Basic URL validation
-  log('Validating Teams webhook URL format');
-  if (!teamsWebhookUrl.startsWith('https://')) {
-    log('Invalid Teams webhook URL format', { url: teamsWebhookUrl.substring(0, 50) + '...' });
-    return { success: false, message: 'URL must start with https://' };
-  }
-  
-  // Additional validation for Teams webhook URLs
-  if (!teamsWebhookUrl.includes('webhook') && !teamsWebhookUrl.includes('office.com')) {
-    log('Suspicious Teams webhook URL format', { url: teamsWebhookUrl.substring(0, 50) + '...' });
-    log('Warning: URL does not contain typical Teams webhook patterns');
-  }
-  
-  await storage.set('teamsWebhookUrl', teamsWebhookUrl);
-  log('Teams webhook URL saved successfully', { urlLength: teamsWebhookUrl.length });
-  return { success: true, message: 'Webhook URL saved' };
-});
+// resolver.define('saveTeamsWebhookUrl', async ({ payload }) => {
+//   log('Saving user settings', { 
+//     payloadType: typeof payload,
+//     payloadKeys: payload ? Object.keys(payload) : []
+//   });
+//   const { teamsWebhookUrl='https://your-tenant.webhook.office.com/webhookb2/' } = payload;
+//   log(teamsWebhookUrl)
+//   
+//   if (!teamsWebhookUrl || teamsWebhookUrl.trim() === '') {
+//     log('Empty URL provided, deleting stored webhook');
+//     await storage.delete('teamsWebhookUrl');
+//     log('Teams webhook URL deleted successfully');
+//     return { success: true, message: 'Webhook URL deleted' };
+//   }
+//   
+//   // Basic URL validation
+//   log('Validating Teams webhook URL format');
+//   if (!teamsWebhookUrl.startsWith('https://')) {
+//     log('Invalid Teams webhook URL format', { url: teamsWebhookUrl.substring(0, 50) + '...' });
+//     return { success: false, message: 'URL must start with https://' };
+//   }
+//   
+//   // Additional validation for Teams webhook URLs
+//   if (!teamsWebhookUrl.includes('webhook') && !teamsWebhookUrl.includes('office.com')) {
+//     log('Suspicious Teams webhook URL format', { url: teamsWebhookUrl.substring(0, 50) + '...' });
+//     log('Warning: URL does not contain typical Teams webhook patterns');
+//   }
+//   
+//   await storage.set('teamsWebhookUrl', teamsWebhookUrl);
+//   log('Teams webhook URL saved successfully', { urlLength: teamsWebhookUrl.length });
+//   return { success: true, message: 'Webhook URL saved' };
+// });
 
 // Get Feishu Webhook URL
 resolver.define('getFeishuWebhookUrl', async () => {

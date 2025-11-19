@@ -26,7 +26,7 @@ resolver.define('saveUserSettings', async ({ payload }) => {
     payloadKeys: payload ? Object.keys(payload) : []
   });
   // payload contains settings (array), schedulePeriod (string) and scheduleTime (string)
-  const { settings = [], schedulePeriod = { label: 'Daily', value: 'Daily' }, scheduleTime = '17:00' } = payload;
+  const { settings = [], schedulePeriod = { label: 'Daily', value: 'Daily' }, gmtScheduleTime = '17:00' } = payload;
 
   // Helper to extract and validate schedulePeriod as Option object
   const extractSchedulePeriod = (val) => {
@@ -73,7 +73,7 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   };
 
   const safeSchedulePeriod = extractSchedulePeriod(schedulePeriod);
-  const safeScheduleTime = extractScheduleTime(scheduleTime);
+  const safeScheduleTime = extractScheduleTime(gmtScheduleTime);
 
   // 改进的时间格式验证，支持多种格式：H:M, HH:M, H:MM, HH:MM
   const isValidTimeFormat = (time) => {
@@ -99,7 +99,9 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   await storage.set('schedulePeriod', safeSchedulePeriod);
   await storage.set('scheduleTime', validatedScheduleTime);
 
-  log('Saved user settings', { settings, schedulePeriod: safeSchedulePeriod, scheduleTime: safeScheduleTime });
+  log('Saved user settings', { settings });
+  log('Stored schedule period', {safeSchedulePeriod});
+  log('Stored schedule time', {validatedScheduleTime});
   return { success: true };
 });
 
@@ -854,7 +856,7 @@ resolver.define('saveFeishuWebhookUrl', async ({ payload }) => {
     payloadKeys: payload ? Object.keys(payload) : []
   });
   const { feishuWebhookUrl='https://open.feishu.cn/open-apis/bot/v2/hook/' } = payload;
-  log(feishuWebhookUrl)
+  log({feishuWebhookUrl});
   
   if (!feishuWebhookUrl || feishuWebhookUrl.trim() === '') {
     log('Empty URL provided, deleting stored webhook');

@@ -3,6 +3,95 @@ import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, ErrorMess
 import { invoke } from '@forge/bridge';
 import SettingsTable from '../components/SettingsTable';
 
+// 获取用户时区偏移量（分钟）
+const getTimezoneOffset = () => {
+  return new Date().getTimezoneOffset();
+};
+
+// 将本地时间转换为GMT时间
+const convertLocalTimeToGMT = (localTime) => {
+  if (!localTime || typeof localTime !== 'string') return '17:00';
+  
+  const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+  const match = localTime.trim().match(timeRegex);
+  
+  if (!match) return localTime;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  
+  // 获取时区偏移量（分钟）
+  const timezoneOffset = getTimezoneOffset();
+  
+  // 计算GMT时间（本地时间 + 时区偏移）
+  let gmtHours = hours + Math.floor(timezoneOffset / 60);
+  let gmtMinutes = minutes + (timezoneOffset % 60);
+  
+  // 处理分钟进位
+  if (gmtMinutes >= 60) {
+    gmtHours += Math.floor(gmtMinutes / 60);
+    gmtMinutes = gmtMinutes % 60;
+  } else if (gmtMinutes < 0) {
+    gmtHours -= Math.ceil(Math.abs(gmtMinutes) / 60);
+    gmtMinutes = 60 + (gmtMinutes % 60);
+  }
+  
+  // 处理小时进位和边界
+  if (gmtHours >= 24) {
+    gmtHours = gmtHours % 24;
+  } else if (gmtHours < 0) {
+    gmtHours = 24 + (gmtHours % 24);
+  }
+  
+  // 格式化时间为HH:MM
+  const formattedHours = gmtHours.toString().padStart(2, '0');
+  const formattedMinutes = gmtMinutes.toString().padStart(2, '0');
+  
+  return `${formattedHours}:${formattedMinutes}`;
+};
+
+// 将GMT时间转换为本地时间
+const convertGMTToLocalTime = (gmtTime) => {
+  if (!gmtTime || typeof gmtTime !== 'string') return '17:00';
+  
+  const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+  const match = gmtTime.trim().match(timeRegex);
+  
+  if (!match) return gmtTime;
+  
+  let hours = parseInt(match[1], 10);
+  const minutes = parseInt(match[2], 10);
+  
+  // 获取时区偏移量（分钟）
+  const timezoneOffset = getTimezoneOffset();
+  
+  // 计算本地时间（GMT时间 - 时区偏移）
+  let localHours = hours - Math.floor(timezoneOffset / 60);
+  let localMinutes = minutes - (timezoneOffset % 60);
+  
+  // 处理分钟进位
+  if (localMinutes >= 60) {
+    localHours += Math.floor(localMinutes / 60);
+    localMinutes = localMinutes % 60;
+  } else if (localMinutes < 0) {
+    localHours -= Math.ceil(Math.abs(localMinutes) / 60);
+    localMinutes = 60 + (localMinutes % 60);
+  }
+  
+  // 处理小时进位和边界
+  if (localHours >= 24) {
+    localHours = localHours % 24;
+  } else if (localHours < 0) {
+    localHours = 24 + (localHours % 24);
+  }
+  
+  // 格式化时间为HH:MM
+  const formattedHours = localHours.toString().padStart(2, '0');
+  const formattedMinutes = localMinutes.toString().padStart(2, '0');
+  
+  return `${formattedHours}:${formattedMinutes}`;
+};
+
 const App = () => {
   const [settings, setSettings] = useState([]);
   const [message, setMessage] = useState('');
@@ -89,11 +178,13 @@ const App = () => {
         });
 
         const normalizedPeriod = normalizePeriod(periodData);
-        const normalizedTime = normalizeTime(timeData);
+        // 从后端获取的是GMT时间，需要转换为本地时间显示
+        const normalizedTime = convertGMTToLocalTime(normalizeTime(timeData));
 
         console.log('Setting normalized values:', { 
           normalizedPeriod, 
           normalizedTime,
+          originalGMTTime: timeData,
           // teamsWebhookUrl: teamsWebhookData,
           feishuWebhookUrl: feishuWebhookData
         });
@@ -121,6 +212,14 @@ const App = () => {
         return;
       }
       
+      // 将用户输入的本地时间转换为GMT时间进行存储
+      const gmtScheduleTime = convertLocalTimeToGMT(scheduleTime);
+      console.log('Time conversion:', { 
+        localTime: scheduleTime, 
+        gmtTime: gmtScheduleTime,
+        timezoneOffset: getTimezoneOffset()
+      });
+      
       // 保存Teams Webhook URL
       // const teamsWebhookResult = await invoke('saveTeamsWebhookUrl', { teamsWebhookUrl });
       // console.log('Teams webhook save result:', teamsWebhookResult);
@@ -136,8 +235,9 @@ const App = () => {
         setWebhookError(feishuWebhookResult.message);
         return;
       }
-      
-      const response = await invoke('saveUserSettings', { settings, schedulePeriod, scheduleTime });
+      //scheduleTime  = gmtScheduleTime;
+      const response = await invoke('saveUserSettings', { settings, schedulePeriod, gmtScheduleTime });
+      //scheduleTime = convertGMTToLocalTime(scheduleTime);
       const successMessage = response.success ? 'Settings saved successfully' : 'Failed to save settings';
       setMessage(successMessage);
       

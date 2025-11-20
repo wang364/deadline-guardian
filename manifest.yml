@@ -5,7 +5,8 @@ modules:
       resolver:
         function: resolver
       render: native
-      title: 'Deadline Guardian'
+      title: 'Jira Issue Reminder'
+      icon: https://agile-practice-for-trello.netlify.app/images/jira_reminder_logo.png
   function:
     - key: resolver
       handler: index.handler

@@ -335,7 +335,7 @@ const App = () => {
         setSettings={setSettings}
       />      
 
-      <Box padding="space.200" borderWidth="1px" borderStyle="solid" borderColor="gray">
+      <Box paddingInline="space.200" borderWidth="1px" borderStyle="solid" borderColor="gray">
         <Text size="large" weight="bold">Schedule Settings</Text>
         <Box padding="small">
           <Label labelFor="schedulePeriod">

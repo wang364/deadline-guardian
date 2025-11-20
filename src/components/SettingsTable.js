@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, Textfield, DynamicTable } from '@forge/react';
+import { Box, Button, Textfield, DynamicTable, Text, Inline } from '@forge/react';
 import { invoke } from '@forge/bridge';
 
 const SettingsTable = ({ settings, setSettings }) => {
@@ -99,23 +99,20 @@ const SettingsTable = ({ settings, setSettings }) => {
       {
         key: "jql",
         content: "JQL Query",
-        shouldTruncate: true,
+        shouldTruncate: false,
         isSortable: false,
-        width: "70%", // Allocate 70% width to JQL Query column
       },
       {
         key: "test",
         content: "Test",
         shouldTruncate: true,
         isSortable: false,
-        width: "15%", // 15% for Test button column
       },
       {
         key: "actions",
         content: "Actions",
         shouldTruncate: true,
         isSortable: false,
-        width: "15%", // 15% for Actions button column
       },
     ],
   };
@@ -134,6 +131,7 @@ const SettingsTable = ({ settings, setSettings }) => {
             style={{ width: '100%' }}
           />
         ),
+        colSpan: 4,
       },
       {
         key: `test-${index}`,
@@ -147,26 +145,35 @@ const SettingsTable = ({ settings, setSettings }) => {
           </Button>
         ),
       },
-      {
+      /* {
         key: `actions-${index}`,
         content: (
           <Button appearance="danger" onClick={() => deleteRow(index)}>Delete</Button>
         ),
-      },
+      }, */
     ],
   }));
 
   return (
-    <Box padding="space.200">
-      <DynamicTable
-        caption='JQL Query Settings'
-        head={head}
-        rows={rows}
-        isFixedSize
-      />
-      <Box padding="medium" paddingTop="none">
-        <Button appearance="primary" onClick={addRow}>Add New JQL Query</Button>
+    <Box paddingInline="space.200">
+      <Text size="large" weight="bold">JQL Query Settings</Text>
+      <Box paddingTop="space.100">
+        <DynamicTable
+          // head={head}
+          rows={rows}
+          isFixedSize
+          emptyView={
+            <Box padding="space.400" textAlign="center">
+              <Text>No JQL queries configured. Add your first query to get started.</Text>
+            </Box>
+          }
+        />
       </Box>
+      {/* <Box padding="medium" paddingTop="none">
+        <Inline>
+          <Button appearance="primary" onClick={addRow}>Add New JQL Query</Button>
+        </Inline>
+      </Box> */}
     </Box>
   );
 };

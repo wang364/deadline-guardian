@@ -1,45 +1,23 @@
-# 项目范围文档
+# Jira Issue Reminder - Smart Jira Issue Reminder System
 
-## 核心功能
-- 用户可设置检查周期，每天或者周一到周日中的一天，同时设置时间
-  - 例如每天13:00进行启动检查规则
-- 按照用户设定时间检查符合条件的jira issue
-- 支持Teams消息通知
-- 基础配置界面
+### 📋 Project Overview
+Jira Issue Reminder is a Jira smart-reminder application built on the Atlassian Forge platform. It monitors Jira issue status and due dates, then automatically sends reminder notifications when needed.
 
+### 🔔 Core Modules
+- **Smart Alerts**: automatic monitoring, early warning, multi-platform support  
+- **Flexible Configuration**: check cycle, custom time, JQL query management  
+- **Auto Site Discovery**: intelligent URL retrieval and secure storage  
 
-## 技术约束
-- 使用Atlassian Forge平台
-- 支持Jira Cloud
-- 使用Forge存储
-- 代码中仅使用英文，包含UI字符串和注释
+### 🛠️ Technical Features
+- **Frontend**: Atlassian UI Kit, responsive design, real-time interaction  
+- **Backend**: Forge Functions, scheduled triggers, Jira API integration  
+- **Integration**: Jira Cloud support, Feishu integration, multi-tenant ready  
 
-# 技术选型文档
+### 💼 Use Cases
+Project management, team collaboration, risk management and other real-world scenarios.
 
-## 前端技术栈
-- Forge UI Kit组件库
+### 📦 Installation & Deployment
+Environment requirements, deployment steps, configuration instructions.
 
-## 后端技术栈  
-- Forge Functions
-- Forge Storage
-
-## 第三方集成
-- Teams Incoming Webhook
-- Jira REST API
-
-## 开发工具
-- Forge CLI
-- npm/yarn
-- Git版本控制
-
-### 监控Jira due date: 
-  - 依据: Jira REST API提供完整的issue搜索能力，支持due date字段查询
-
-### 提前1天预警:
-  - 依据: Forge Scheduled Functions支持定时任务，可每天运行检查
-
-### Teams消息通知:
-  - 依据: Teams Incoming Webhook是标准集成方式，文档完善
-
-### 基础配置界面:
-  - 依据: Forge UI Kit提供现成的表单组件
+### 🔒 Security
+Principle of least privilege, secure storage, access control.

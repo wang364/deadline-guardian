@@ -636,7 +636,7 @@ export const checkDueDateAlert = async () => {
       return { success: true, skipped: true, reason: 'Not scheduled day' };
     }
     
-    log('Running scheduled check', { period: safeSchedulePeriod, time: safeScheduleTime });
+    log('Running scheduled check', { period: safeSchedulePeriod, time: safeScheduleTime, currentDay });
     
     // 从storage中获取用户配置的JQL查询条件
     const settings = await storage.get('settings');

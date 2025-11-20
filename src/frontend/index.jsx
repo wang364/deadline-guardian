@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, ErrorMessage } from '@forge/react';
-import { invoke } from '@forge/bridge';
+import { invoke, view } from '@forge/bridge';
 import SettingsTable from '../components/SettingsTable';
 
 // 获取用户时区偏移量（分钟）
@@ -212,6 +212,31 @@ const App = () => {
         return;
       }
       
+      // 获取当前Jira站点的上下文信息
+      const forgeContext = await view.getContext();
+      console.log('Forge context:', forgeContext);
+      
+      // 从上下文中提取站点URL
+      let jiraSiteUrl = '';
+      if (forgeContext && forgeContext.siteUrl) {
+        jiraSiteUrl = forgeContext.siteUrl;
+        console.log('Extracted Jira site URL from context:', jiraSiteUrl);
+      } else {
+        // 如果无法从上下文获取，尝试从window.location获取
+        jiraSiteUrl = window.location.origin;
+        console.log('Extracted Jira site URL from window.location:', jiraSiteUrl);
+      }
+      
+      // 保存Jira站点URL到storage
+      if (jiraSiteUrl) {
+        const jiraUrlResult = await invoke('saveJiraSiteUrl', { jiraSiteUrl });
+        console.log('Jira site URL save result:', jiraUrlResult);
+        if (!jiraUrlResult.success) {
+          setError(`Failed to save Jira site URL: ${jiraUrlResult.message}`);
+          return;
+        }
+      }
+      
       // 将用户输入的本地时间转换为GMT时间进行存储
       const gmtScheduleTime = convertLocalTimeToGMT(scheduleTime);
       console.log('Time conversion:', { 
@@ -224,7 +249,7 @@ const App = () => {
       // const teamsWebhookResult = await invoke('saveTeamsWebhookUrl', { teamsWebhookUrl });
       // console.log('Teams webhook save result:', teamsWebhookResult);
       // if (!teamsWebhookResult.success) {
-      //   setWebhookError(teamsWebhookResult.message);
+      //   setWebhookError(feishuWebhookResult.message);
       //   return;
       // }
       

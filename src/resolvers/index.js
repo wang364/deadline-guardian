@@ -27,6 +27,7 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   });
   // payload contains settings (array), schedulePeriod (string) and scheduleTime (string)
   const { settings = [], schedulePeriod = { label: 'Daily', value: 'Daily' }, gmtScheduleTime = '17:00' } = payload;
+  log('Extracted settings', { settings, schedulePeriod, gmtScheduleTime });
 
   // Helper to extract and validate schedulePeriod as Option object
   const extractSchedulePeriod = (val) => {
@@ -276,12 +277,57 @@ const executeJiraSearch = async (jql) => {
     
     const data = await responseClone.json();
     log('Enhanced JQL search data parsed successfully', { 
-      totalIssues: data.total || 0,
-      maxResults: data.maxResults || 0,
+      totalIssues: data.total || data.issues?.length || 0,
+      maxResults: data.maxResults || data.issues?.length || 0,
       issuesCount: data.issues ? data.issues.length : 0
     });
+
+    // 获取Jira站点的完整URL - 首先尝试从storage中读取用户保存的URL
+    let baseUrl;
+    try {
+      // 首先尝试从storage中读取用户保存的Jira站点URL
+      const storedJiraSiteUrl = await storage.get('jiraSiteUrl');
+      if (storedJiraSiteUrl) {
+        // 从完整的URL中提取域名部分（移除https://前缀）
+        const url = new URL(storedJiraSiteUrl);
+        baseUrl = url.hostname;
+        log('Using Jira site URL from storage', { 
+          storedUrl: storedJiraSiteUrl,
+          extractedBaseUrl: baseUrl 
+        });
+      } else {
+        // 如果storage中没有保存的URL，使用serverInfo API
+        log('No Jira site URL found in storage, using serverInfo API');
+        const serverInfoResponse = await jiraApi.requestJira('/rest/api/3/serverInfo', {
+          headers: {
+            'Accept': 'application/json'
+          }
+        });
+        
+        if (serverInfoResponse.ok) {
+          const serverInfo = await serverInfoResponse.json();
+          baseUrl = serverInfo.baseUrl;
+          log('Successfully retrieved Jira server info', { baseUrl });
+        } else {
+          log('Failed to get server info, using alternative approach', { 
+            status: serverInfoResponse.status 
+          });
+          // 如果无法获取serverInfo，使用占位符URL
+          baseUrl = 'jira-instance.example.com'; // 占位符，需要用户配置
+        }
+      }
+    } catch (error) {
+      log('Error getting Jira site URL, using alternative approach', { 
+        error: error.message 
+      });
+      // 如果无法获取URL，使用占位符URL
+      baseUrl = 'jira-instance.example.com'; // 占位符，需要用户配置
+    }
     
     const issues = data.issues.map(issue => {
+      // 构建issue链接 - 使用Jira站点的完整URL
+      const issueLink = `https://${baseUrl}/browse/${issue.key}`;
+      
       const issueData = {
         key: issue.key,
         summary: issue.fields.summary,
@@ -290,6 +336,7 @@ const executeJiraSearch = async (jql) => {
         assignee: issue.fields.assignee?.displayName,
         dueDate: issue.fields.duedate,
         updated: issue.fields.updated,
+        link: issueLink, // 添加issue链接
         fields: {}
       };
       
@@ -304,7 +351,8 @@ const executeJiraSearch = async (jql) => {
         key: issueData.key,
         hasDueDate: !!issueData.dueDate,
         status: issueData.status,
-        priority: issueData.priority
+        priority: issueData.priority,
+        link: issueData.link
       });
       
       return issueData;
@@ -385,31 +433,20 @@ const processNotification = async (issues) => {
         "sections": [{
           "activityTitle": "📋 Issues Requiring Attention",
           "facts": issues.map(issue => ({
-            "name": `**${issue.key}** - ${issue.summary}`,
-            "value": `📅 ${formatDueDate(issue.dueDate)}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
+            "name": `**[${issue.key}](${issue.link})** - ${issue.summary}`,
+            "value": `📅 ${formatDueDate(issue.dueDate)}\n👤 Assignee: ${issue.assignee || 'Unassigned'}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
           })),
           "markdown": true
         }],
-        "potentialAction": [
-          {
-            "@type": "OpenUri",
-            "name": "View All Issues",
-            "targets": [
-              {
-                "os": "default",
-                "uri": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
-              }
-            ]
-          }
-        ]
+
       };
     };
     
     const createFeishuMessage = (issues) => {
       const issueList = issues.map(issue => {
         const dueDateInfo = formatDueDate(issue.dueDate);
-        return `• **${issue.key}** - ${issue.summary}\n  📅 ${dueDateInfo}\n  🎯 Priority: ${issue.priority || 'Not set'}\n  📊 Status: ${issue.status || 'Unknown'}`;
-      }).join('\n\n');
+        return `• **<u>[${issue.key}](${issue.link})</u>** - ${issue.summary} \n 📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`;
+      }).join('\n');
       
       return {
         "msg_type": "interactive",
@@ -421,7 +458,7 @@ const processNotification = async (issues) => {
           "header": {
             "title": {
               "tag": "plain_text",
-              "content": "🔔 Jira Due Date Alert"
+              "content": "🔔 Jira Issue Reminder"
             },
             "template": "orange"
           },
@@ -430,23 +467,10 @@ const processNotification = async (issues) => {
               "tag": "div",
               "text": {
                 "tag": "lark_md",
-                "content": `You have **${issues.length}** Jira issue(s) with approaching due dates:\n\n${issueList}`
+                "content": `You have **${issues.length}** Jira issue(s) that require attention:\n\n${issueList}`
               }
             },
-            {
-              "tag": "action",
-              "actions": [
-                {
-                  "tag": "button",
-                  "text": {
-                    "tag": "plain_text",
-                    "content": "View All Issues"
-                  },
-                  "type": "primary",
-                  "url": "/issues/?jql=assignee%20%3D%20currentUser()%20AND%20resolution%20%3D%20Unresolved%20AND%20duedate%20%3C%3D%207d%20ORDER%20BY%20duedate%20ASC"
-                }
-              ]
-            }
+
           ]
         }
       };
@@ -578,7 +602,7 @@ export const checkDueDateAlert = async () => {
     
     // 检查当前时间是否在目标时间±5分钟范围内
     const timeDiff = Math.abs((currentHour * 60 + currentMinute) - (targetHour * 60 + targetMinute));
-    if (timeDiff > 5) {
+    if (timeDiff > 3) {
       log('Not in scheduled time window, skipping check');
       return { success: true, skipped: true, reason: 'Not in scheduled time window' };
     }
@@ -625,7 +649,7 @@ export const checkDueDateAlert = async () => {
     // 如果没有配置JQL查询，使用默认查询
     if (!settings || settings.length === 0 || !settings.some(s => s.jql && s.jql.trim())) {
       log('No JQL settings found, using default query');
-      const defaultJql = 'assignee = currentUser() AND resolution = Unresolved AND duedate <= 7d AND duedate >= now() order by duedate ASC';
+      const defaultJql = 'resolution = Unresolved AND duedate <= 7d AND duedate >= now() order by duedate ASC';
       const searchResult = await executeJiraSearch(defaultJql);
       if (searchResult.success && searchResult.issues.length > 0) {
         return await processNotification(searchResult.issues);
@@ -881,6 +905,39 @@ resolver.define('saveFeishuWebhookUrl', async ({ payload }) => {
   await storage.set('feishuWebhookUrl', feishuWebhookUrl);
   log('Feishu webhook URL saved successfully', { urlLength: feishuWebhookUrl.length });
   return { success: true, message: 'Webhook URL saved' };
+});
+
+// Save Jira Site URL
+resolver.define('saveJiraSiteUrl', async ({ payload }) => {
+  log('Saving Jira site URL', { 
+    payloadType: typeof payload,
+    payloadKeys: payload ? Object.keys(payload) : []
+  });
+  const { jiraSiteUrl } = payload;
+  
+  if (!jiraSiteUrl || jiraSiteUrl.trim() === '') {
+    log('Empty Jira site URL provided, deleting stored URL');
+    await storage.delete('jiraSiteUrl');
+    log('Jira site URL deleted successfully');
+    return { success: true, message: 'Jira site URL deleted' };
+  }
+  
+  // Basic URL validation
+  log('Validating Jira site URL format');
+  if (!jiraSiteUrl.startsWith('https://')) {
+    log('Invalid Jira site URL format', { url: jiraSiteUrl.substring(0, 50) + '...' });
+    return { success: false, message: 'Jira site URL must start with https://' };
+  }
+  
+  // Additional validation for Jira site URLs
+  if (!jiraSiteUrl.includes('.atlassian.net') && !jiraSiteUrl.includes('jira.')) {
+    log('Suspicious Jira site URL format', { url: jiraSiteUrl.substring(0, 50) + '...' });
+    log('Warning: URL does not contain typical Jira site patterns');
+  }
+  
+  await storage.set('jiraSiteUrl', jiraSiteUrl);
+  log('Jira site URL saved successfully', { urlLength: jiraSiteUrl.length });
+  return { success: true, message: 'Jira site URL saved' };
 });
 
 

@@ -426,9 +426,9 @@ const processNotification = async (issues) => {
       return {
         "@type": "MessageCard",
         "@context": "http://schema.org/extensions",
-        "themeColor": "FF6B35", // 橙色表示警告
+        "themeColor": "007ACC", // 蓝色色调，与logo保持一致
         "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
-        "title": "🔔 Jira Due Date Alert",
+        "title": "🔔 Jira Issue Reminder",
         "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
         "sections": [{
           "activityTitle": "📋 Issues Requiring Attention",
@@ -460,7 +460,7 @@ const processNotification = async (issues) => {
               "tag": "plain_text",
               "content": "🔔 Jira Issue Reminder"
             },
-            "template": "orange"
+            "template": "blue" // 将橙色改为蓝色
           },
           "elements": [
             {

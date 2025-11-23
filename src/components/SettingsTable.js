@@ -117,8 +117,9 @@ const SettingsTable = ({ settings, setSettings }) => {
     ],
   };
 
-  // Prepare row data
-  const rows = settings.map((setting, index) => ({
+  // Prepare row data - ensure at least one empty row exists when settings is empty
+  const displayRows = settings.length > 0 ? settings : [{ jql: '' }];
+  const rows = displayRows.map((setting, index) => ({
     key: `row-${index}`,
     cells: [
       {
@@ -162,11 +163,7 @@ const SettingsTable = ({ settings, setSettings }) => {
           // head={head}
           rows={rows}
           isFixedSize
-          emptyView={
-            <Box padding="space.400" textAlign="center">
-              <Text>No JQL queries configured. Add your first query to get started.</Text>
-            </Box>
-          }
+          // No emptyView needed as we always have at least one row
         />
       </Box>
       {/* <Box padding="medium" paddingTop="none">

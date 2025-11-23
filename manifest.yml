@@ -1,6 +1,6 @@
 modules:
   jira:globalPage:
-    - key: deadline-guardian
+    - key: jira-issue-reminder
       resource: main
       resolver:
         function: resolver
@@ -13,7 +13,7 @@ modules:
     - key: check-due-date-alert
       handler: index.checkDueDateAlert
   scheduledTrigger:
-    - key: deadline-check-trigger
+    - key: deadline-check-triggera
       function: check-due-date-alert
       interval: fiveMinute
 resources:
@@ -24,7 +24,9 @@ app:
     name: nodejs22.x
     memoryMB: 256
     architecture: arm64
-  id: ari:cloud:ecosystem::app/10fafa22-c58b-4779-81e6-1c03b82687c4
+  id: ari:cloud:ecosystem::app/6dcf08c3-5b69-4947-bb79-c1addf85117f
+  licensing:
+    enabled: true
 permissions:
   scopes:
     - storage:app

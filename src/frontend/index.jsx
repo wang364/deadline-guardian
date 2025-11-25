@@ -93,7 +93,7 @@ const convertGMTToLocalTime = (gmtTime) => {
 };
 
 const App = () => {
-  const [settings, setSettings] = useState([]);
+  const [settings, setSettings] = useState([{ jql: '' }]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState(undefined);
   const [schedulePeriod, setSchedulePeriod] = useState({ label: 'Daily', value: 'Daily' });
@@ -168,9 +168,10 @@ const App = () => {
           invoke('getFeishuWebhookUrl')
         ]);
         
-        setSettings(settingsData || []);
+        setSettings(settingsData.length > 0 ? settingsData : [{ jql: '' }]);
 
         console.log('Setting initial values:', { 
+          settingsData,
           periodData, 
           timeData,
           //teamsWebhookData,

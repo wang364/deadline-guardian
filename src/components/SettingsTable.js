@@ -118,8 +118,7 @@ const SettingsTable = ({ settings, setSettings }) => {
   };
 
   // Prepare row data - ensure at least one empty row exists when settings is empty
-  const displayRows = settings.length > 0 ? settings : [{ jql: '' }];
-  const rows = displayRows.map((setting, index) => ({
+  const rows = settings.map((setting, index) => ({
     key: `row-${index}`,
     cells: [
       {

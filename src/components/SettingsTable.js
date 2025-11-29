@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Box, Button, Textfield, DynamicTable, Text, Inline } from '@forge/react';
+import { Box, Button, Textfield, DynamicTable, Text, Inline, Lozenge, Spinner, SectionMessage } from '@forge/react';
 import { invoke } from '@forge/bridge';
 
 const SettingsTable = ({ settings, setSettings }) => {
@@ -31,6 +31,13 @@ const SettingsTable = ({ settings, setSettings }) => {
       const newSettings = prev.map((s, i) => (i === index ? { ...s, [field]: value } : s));
       return newSettings;
     });
+    
+    // Clear test result when JQL query changes
+    setTestResults(prev => {
+      const newResults = { ...prev };
+      delete newResults[index];
+      return newResults;
+    });
   };
 
   const testJqlSearch = async (index, jql) => {
@@ -58,12 +65,10 @@ const SettingsTable = ({ settings, setSettings }) => {
           [index]: {
             success: true,
             message: `Found ${result.data.issues.length} issues`,
-            issues: result.data.issues.length
+            issues: result.data.issues.length,
+            sampleIssues: result.data.issues.slice(0, 3) // Show first 3 issues as sample
           }
         }));
-        
-        // Show success notification
-        alert(`JQL test successful! Found ${result.data.issues.length} issues.`);
       } else {
         setTestResults(prev => ({
           ...prev,
@@ -73,8 +78,6 @@ const SettingsTable = ({ settings, setSettings }) => {
             error: result.error
           }
         }));
-        
-        alert(`JQL test failed: ${result.error}`);
       }
     } catch (error) {
       console.error(`Error testing JQL for row ${index}:`, error);
@@ -86,11 +89,18 @@ const SettingsTable = ({ settings, setSettings }) => {
           error: error.message
         }
       }));
-      
-      alert(`Error testing JQL: ${error.message}`);
     } finally {
       setLoadingTests(prev => ({ ...prev, [index]: false }));
     }
+  };
+
+  // Clear test result for a specific row
+  const clearTestResult = (index) => {
+    setTestResults(prev => {
+      const newResults = { ...prev };
+      delete newResults[index];
+      return newResults;
+    });
   };
 
   // Prepare table header
@@ -124,25 +134,68 @@ const SettingsTable = ({ settings, setSettings }) => {
       {
         key: `jql-${index}`,
         content: (
-          <Textfield
-            value={setting.jql || ''}
-            onChange={(value) => handleChange(index, 'jql', value)}
-            placeholder="Enter JQL query... (e.g., assignee = currentUser() AND resolution = Unresolved)"
-            style={{ width: '100%' }}
-          />
+          <Box>
+            <Textfield
+              value={setting.jql || ''}
+              onChange={(value) => handleChange(index, 'jql', value)}
+              placeholder="Enter JQL query... (e.g., assignee = currentUser() AND resolution = Unresolved)"
+              style={{ width: '100%' }}
+            />
+            {testResults[index] && (
+              <Box paddingTop="space.100">
+                <SectionMessage
+                  appearance={testResults[index].success ? "success" : "error"}
+                  title={testResults[index].success ? "Test Successful" : "Test Failed"}
+                >
+                  <Box>
+                    <Text>{testResults[index].message}</Text>
+                    {testResults[index].success && testResults[index].sampleIssues && (
+                      <Box paddingTop="space.100">
+                        {testResults[index].sampleIssues.map((issue, i) => (
+                          <Box key={i} paddingTop="space.050">
+                            <Inline>
+                              <Lozenge appearance="inprogress">{issue.key}</Lozenge>
+                              <Text size="small">{issue.fields.summary}</Text>
+                            </Inline>
+                          </Box>
+                        ))}
+                      </Box>
+                    )}
+                  </Box>
+                </SectionMessage>
+              </Box>
+            )}
+          </Box>
         ),
         colSpan: 4,
       },
       {
         key: `test-${index}`,
         content: (
-          <Button 
-            appearance="primary" 
-            onClick={() => testJqlSearch(index, setting.jql)}
-            isDisabled={loadingTests[index] || !setting.jql || !setting.jql.trim()}
-          >
-            {loadingTests[index] ? 'Testing...' : 'Test JQL Search'}
-          </Button>
+          <Box>
+            <Button 
+              appearance="primary" 
+              onClick={() => testJqlSearch(index, setting.jql)}
+              isDisabled={loadingTests[index] || !setting.jql || !setting.jql.trim()}
+            >
+              {loadingTests[index] ? (
+                <Inline>
+                  <Spinner size="small" />
+                  <Text>Testing...</Text>
+                </Inline>
+              ) : 'Test JQL Search'}
+            </Button>
+            {testResults[index] && (
+              <Box paddingTop="space.050">
+                <Button 
+                  appearance="subtle" 
+                  onClick={() => clearTestResult(index)}
+                >
+                  Clear Result
+                </Button>
+              </Box>
+            )}
+          </Box>
         ),
       },
       /* {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, ErrorMessage } from '@forge/react';
+import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, ErrorMessage, TimePicker } from '@forge/react';
 import { invoke, view } from '@forge/bridge';
 import SettingsTable from '../components/SettingsTable';
 
@@ -279,11 +279,11 @@ const App = () => {
   // 删除旧的handlePeriodChange函数，使用新的版本
 
   const handleTimeChange = (value) => {
-    // @forge/react Textfield onChange提供的是新值直接作为参数
+    // TimePicker onChange provides the selected time value directly
     console.log('Time changed to:', value);
-    // 直接设置用户输入的值，不做任何处理
-    setScheduleTime(value.target.value);
-    // 当用户修改时间时，清除之前的错误消息
+    // TimePicker returns the time in ISO format or empty string
+    setScheduleTime(value);
+    // When user modifies time, clear previous error message
     if (error) {
       setError(undefined);
     }
@@ -352,13 +352,17 @@ const App = () => {
         </Box>
         <Box padding="small">
           <Label labelFor="scheduleTime">
-            Schedule Time (HH:MM)
+            Schedule Time
           </Label>
-          <Textfield
-            id="scheduleTime"
+          <TimePicker
             value={scheduleTime}
-            // @forge/react Textfield onChange provides the new value directly
-            onChange={(e) => handleTimeChange(e)}
+            onChange={handleTimeChange}
+            placeholder="Select time"
+            timeFormat="HH:mm"
+            timeIsEditable={true}
+            selectProps={{
+              inputId: "scheduleTime",
+            }}
           />
         </Box>
         {/* <Box padding="small">

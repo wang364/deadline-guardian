@@ -916,7 +916,7 @@ resolver.define('getFeishuWebhookUrl', async () => {
     urlLength: url ? url.length : 0,
     urlPreview: url ? `${url.substring(0, 20)}...` : null
   });
-  return { url };
+  return { feishuWebhookUrl: url };
 });
 
 // Save Feishu Webhook URL
@@ -962,7 +962,7 @@ resolver.define('getSlackWebhookUrl', async () => {
     urlLength: url ? url.length : 0,
     urlPreview: url ? `${url.substring(0, 20)}...` : null
   });
-  return { url };
+  return { slackWebhookUrl: url };
 });
 
 // Save Slack Webhook URL

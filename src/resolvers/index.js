@@ -385,12 +385,15 @@ const processNotification = async (issues) => {
     log('Checking webhook configuration');
     const teamsWebhookUrl = await storage.get('teamsWebhookUrl');
     const feishuWebhookUrl = await storage.get('feishuWebhookUrl');
+    const slackWebhookUrl = await storage.get('slackWebhookUrl'); // 新增Slack Webhook URL
     
     log('Webhook configuration check', { 
       hasTeamsWebhook: !!teamsWebhookUrl,
       hasFeishuWebhook: !!feishuWebhookUrl,
+      hasSlackWebhook: !!slackWebhookUrl, // 新增Slack检查
       teamsWebhookUrl: teamsWebhookUrl ? '[REDACTED]' : null,
-      feishuWebhookUrl: feishuWebhookUrl ? '[REDACTED]' : null
+      feishuWebhookUrl: feishuWebhookUrl ? '[REDACTED]' : null,
+      slackWebhookUrl: slackWebhookUrl ? '[REDACTED]' : null // 新增Slack URL日志
     });
     
     // 检查是否有配置的webhook
@@ -400,6 +403,9 @@ const processNotification = async (issues) => {
     }
     if (feishuWebhookUrl) {
       webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
+    }
+    if (slackWebhookUrl) {
+      webhooks.push({ url: slackWebhookUrl, type: 'slack' }); // 新增Slack webhook
     }
     
     if (webhooks.length === 0) {
@@ -476,6 +482,44 @@ const processNotification = async (issues) => {
       };
     };
     
+    // 新增Slack消息创建函数
+    const createSlackMessage = (issues) => {
+      const issueBlocks = issues.map(issue => {
+        const dueDateInfo = formatDueDate(issue.dueDate);
+        return {
+          "type": "section",
+          "text": {
+            "type": "mrkdwn",
+            "text": `*<${issue.link}|${issue.key}>* - ${issue.summary}\n📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`
+          }
+        };
+      });
+      
+      return {
+        "blocks": [
+          {
+            "type": "header",
+            "text": {
+              "type": "plain_text",
+              "text": "🔔 Jira Issue Reminder",
+              "emoji": true
+            }
+          },
+          {
+            "type": "section",
+            "text": {
+              "type": "mrkdwn",
+              "text": `You have *${issues.length}* Jira issue(s) that require attention:`
+            }
+          },
+          {
+            "type": "divider"
+          },
+          ...issueBlocks
+        ]
+      };
+    };
+    
     // 向所有配置的webhook发送通知
     const notificationResults = [];
     
@@ -487,6 +531,8 @@ const processNotification = async (issues) => {
           alertMessage = createTeamsMessage(issues);
         } else if (webhook.type === 'feishu') {
           alertMessage = createFeishuMessage(issues);
+        } else if (webhook.type === 'slack') {
+          alertMessage = createSlackMessage(issues); // 新增Slack消息处理
         }
         
         if (alertMessage) {
@@ -904,6 +950,51 @@ resolver.define('saveFeishuWebhookUrl', async ({ payload }) => {
   
   await storage.set('feishuWebhookUrl', feishuWebhookUrl);
   log('Feishu webhook URL saved successfully', { urlLength: feishuWebhookUrl.length });
+  return { success: true, message: 'Webhook URL saved' };
+});
+
+// Get Slack Webhook URL
+resolver.define('getSlackWebhookUrl', async () => {
+  log('Fetching Slack webhook URL from storage');
+  const url = await storage.get('slackWebhookUrl');
+  log('Slack webhook URL fetched', { 
+    hasUrl: !!url,
+    urlLength: url ? url.length : 0,
+    urlPreview: url ? `${url.substring(0, 20)}...` : null
+  });
+  return { url };
+});
+
+// Save Slack Webhook URL
+resolver.define('saveSlackWebhookUrl', async ({ payload }) => {
+  log('Saving Slack webhook URL', { 
+    payloadType: typeof payload,
+    payloadKeys: payload ? Object.keys(payload) : []
+  });
+  const { slackWebhookUrl } = payload;
+  
+  if (!slackWebhookUrl || slackWebhookUrl.trim() === '') {
+    log('Empty URL provided, deleting stored webhook');
+    await storage.delete('slackWebhookUrl');
+    log('Slack webhook URL deleted successfully');
+    return { success: true, message: 'Webhook URL deleted' };
+  }
+  
+  // Basic URL validation
+  log('Validating Slack webhook URL format');
+  if (!slackWebhookUrl.startsWith('https://')) {
+    log('Invalid Slack webhook URL format', { url: slackWebhookUrl.substring(0, 50) + '...' });
+    return { success: false, message: 'URL must start with https://' };
+  }
+  
+  // Additional validation for Slack webhook URLs
+  if (!slackWebhookUrl.includes('hooks.slack.com')) {
+    log('Suspicious Slack webhook URL format', { url: slackWebhookUrl.substring(0, 50) + '...' });
+    log('Warning: URL does not contain typical Slack webhook patterns');
+  }
+  
+  await storage.set('slackWebhookUrl', slackWebhookUrl);
+  log('Slack webhook URL saved successfully', { urlLength: slackWebhookUrl.length });
   return { success: true, message: 'Webhook URL saved' };
 });
 

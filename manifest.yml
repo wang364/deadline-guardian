@@ -35,3 +35,4 @@ permissions:
     fetch:
       backend:
         - address: open.feishu.cn
+        - address: hooks.slack.com

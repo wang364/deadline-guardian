@@ -1,4 +1,3 @@
-import React, { useState } from 'react';
 import { Box, Button, Textfield, DynamicTable, Text, Inline, Lozenge, Spinner, SectionMessage } from '@forge/react';
 import { invoke } from '@forge/bridge';
 

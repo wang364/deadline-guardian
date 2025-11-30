@@ -94,14 +94,15 @@ const convertGMTToLocalTime = (gmtTime) => {
 
 const App = () => {
   const [settings, setSettings] = useState([{ jql: '' }]);
-  const [message, setMessage] = useState('');
-  const [error, setError] = useState(undefined);
   const [schedulePeriod, setSchedulePeriod] = useState({ label: 'Daily', value: 'Daily' });
   const [scheduleTime, setScheduleTime] = useState('17:00');
-  //const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
+  // const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
   const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('');
-  const [webhookError, setWebhookError] = useState('');
+  const [slackWebhookUrl, setSlackWebhookUrl] = useState(''); // 新增Slack Webhook URL状态
   const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState();
+  const [webhookError, setWebhookError] = useState('');
+  const [message, setMessage] = useState('');
 
     // 定义选项数组
   const periodOptions = [
@@ -154,49 +155,34 @@ const App = () => {
     const fetchSettings = async () => {
       try {
         setIsLoading(true);
-        const [
-          { settings: settingsData },
-          { schedulePeriod: periodData },
-          { scheduleTime: timeData },
-          //{ url: teamsWebhookData },
-          { url: feishuWebhookData }
-        ] = await Promise.all([
-          invoke('getSettings'),
-          invoke('getschedulePeriod'),
-          invoke('getscheduleTime'),
-          //invoke('getTeamsWebhookUrl'),
-          invoke('getFeishuWebhookUrl')
-        ]);
         
-        setSettings(settingsData.length > 0 ? settingsData : [{ jql: '' }]);
-
-        console.log('Setting initial values:', { 
-          settingsData,
-          periodData, 
-          timeData,
-          //teamsWebhookData,
-          feishuWebhookData
-        });
-
-        const normalizedPeriod = normalizePeriod(periodData);
-        // 从后端获取的是GMT时间，需要转换为本地时间显示
-        const normalizedTime = convertGMTToLocalTime(normalizeTime(timeData));
-
-        console.log('Setting normalized values:', { 
-          normalizedPeriod, 
-          normalizedTime,
-          originalGMTTime: timeData,
-          // teamsWebhookUrl: teamsWebhookData,
-          feishuWebhookUrl: feishuWebhookData
-        });
-
-        setSchedulePeriod(normalizedPeriod);
-        setScheduleTime(normalizedTime);
-        // setTeamsWebhookUrl(teamsWebhookData || '');
-        setFeishuWebhookUrl(feishuWebhookData || '');
-
+        // 获取用户设置
+        const settingsResponse = await invoke('getSettings');
+        const settingsData = settingsResponse.settings || [ { jql: '' } ];
+        setSettings(settingsData);
+        
+        // 获取调度周期
+        const periodResponse = await invoke('getschedulePeriod');
+        const periodData = periodResponse.schedulePeriod || { label: 'Daily', value: 'Daily' };
+        setSchedulePeriod(periodData);
+        
+        // 获取调度时间
+        const timeResponse = await invoke('getscheduleTime');
+        const timeData = timeResponse.scheduleTime || '17:00';
+        setScheduleTime(convertGMTToLocalTime(timeData));
+        
+        // 获取飞书Webhook URL
+        const feishuWebhookResponse = await invoke('getFeishuWebhookUrl');
+        const feishuWebhookData = feishuWebhookResponse.feishuWebhookUrl || '';
+        setFeishuWebhookUrl(feishuWebhookData);
+        
+        // 获取Slack Webhook URL
+        const slackWebhookResponse = await invoke('getSlackWebhookUrl');
+        const slackWebhookData = slackWebhookResponse.slackWebhookUrl || '';
+        setSlackWebhookUrl(slackWebhookData);
+        
       } catch (err) {
-        setError(`Failed to load settings: ${err.message}`);
+        setError(err.message);
       } finally {
         setIsLoading(false);
       }
@@ -246,14 +232,6 @@ const App = () => {
         timezoneOffset: getTimezoneOffset()
       });
       
-      // 保存Teams Webhook URL
-      // const teamsWebhookResult = await invoke('saveTeamsWebhookUrl', { teamsWebhookUrl });
-      // console.log('Teams webhook save result:', teamsWebhookResult);
-      // if (!teamsWebhookResult.success) {
-      //   setWebhookError(feishuWebhookResult.message);
-      //   return;
-      // }
-      
       // 保存飞书Webhook URL
       const feishuWebhookResult = await invoke('saveFeishuWebhookUrl', {  feishuWebhookUrl });
       console.log('Feishu webhook save result:', feishuWebhookResult);
@@ -261,9 +239,16 @@ const App = () => {
         setWebhookError(feishuWebhookResult.message);
         return;
       }
-      //scheduleTime  = gmtScheduleTime;
+      
+      // 保存Slack Webhook URL
+      const slackWebhookResult = await invoke('saveSlackWebhookUrl', { slackWebhookUrl });
+      console.log('Slack webhook save result:', slackWebhookResult);
+      if (!slackWebhookResult.success) {
+        setWebhookError(slackWebhookResult.message);
+        return;
+      }
+      
       const response = await invoke('saveUserSettings', { settings, schedulePeriod, gmtScheduleTime });
-      //scheduleTime = convertGMTToLocalTime(scheduleTime);
       const successMessage = response.success ? 'Settings saved successfully' : 'Failed to save settings';
       setMessage(successMessage);
       
@@ -275,8 +260,6 @@ const App = () => {
       setError(err.message);
     }
   };
-
-  // 删除旧的handlePeriodChange函数，使用新的版本
 
   const handleTimeChange = (value) => {
     // TimePicker onChange provides the selected time value directly
@@ -305,16 +288,24 @@ const App = () => {
   
   // Handle Feishu Webhook URL change
   const handleFeishuWebhookUrlChange = (value) => {
-    // Forge React Textfield onChange provides the new value directly
     const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
     console.log('Feishu webhook URL changed:', newUrl ? newUrl : 'empty');
     setFeishuWebhookUrl(newUrl);
-    // Clear webhook error when user starts typing
     if (webhookError) {
       setWebhookError('');
     }
   };
   
+  // Handle Slack Webhook URL change
+  const handleSlackWebhookUrlChange = (value) => {
+    const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
+    console.log('Slack webhook URL changed:', newUrl ? newUrl : 'empty');
+    setSlackWebhookUrl(newUrl);
+    if (webhookError) {
+      setWebhookError('');
+    }
+  };
+
   const handlePeriodChange = (option) => {
     console.log('Period changed to:', option);
     setSchedulePeriod(option);
@@ -345,7 +336,6 @@ const App = () => {
           <Select
             id="schedulePeriod"
             value={schedulePeriod}
-            // @forge/react Select onChange provides the new value directly (not a DOM event)
             onChange={(option) => handlePeriodChange(option)}
             options={periodOptions}
           />
@@ -365,20 +355,6 @@ const App = () => {
             }}
           />
         </Box>
-        {/* <Box padding="small">
-          <Label labelFor="teamsWebhookUrl">
-            Teams Webhook URL
-          </Label>
-          <Textfield
-            id="teamsWebhookUrl"
-            value={teamsWebhookUrl}
-            onChange={handleWebhookUrlChange}
-            placeholder="https://your-tenant.webhook.office.com/webhookb2/..."
-          />
-          <Text size="small" color="subdued">
-            Configure your Microsoft Teams webhook URL for notifications (optional)
-          </Text>
-        </Box> */}
         
         <Box padding="small">
           <Label labelFor="feishuWebhookUrl">
@@ -392,6 +368,21 @@ const App = () => {
           />
           <Text size="small" color="subdued">
             Configure your Feishu webhook URL for notifications (optional)
+          </Text>
+        </Box>
+        
+        <Box padding="small">
+          <Label labelFor="slackWebhookUrl">
+            Slack Webhook URL
+          </Label>
+          <Textfield
+            id="slackWebhookUrl"
+            value={slackWebhookUrl}
+            onChange={handleSlackWebhookUrlChange}
+            placeholder="https://hooks.slack.com/services/..."
+          />
+          <Text size="small" color="subdued">
+            Configure your Slack webhook URL for notifications (optional)
           </Text>
         </Box>
         

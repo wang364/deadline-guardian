@@ -25,9 +25,21 @@ resolver.define('saveUserSettings', async ({ payload }) => {
     payloadType: typeof payload,
     payloadKeys: payload ? Object.keys(payload) : []
   });
-  // payload contains settings (array), schedulePeriod (string) and scheduleTime (string)
+  
+  // 安全验证：验证设置结构
   const { settings = [], schedulePeriod = { label: 'Daily', value: 'Daily' }, gmtScheduleTime = '17:00' } = payload;
-  log('Extracted settings', { settings, schedulePeriod, gmtScheduleTime });
+  
+  if (!securityUtils.validateSettingsStructure(settings)) {
+    log('Invalid settings structure detected', { settings });
+    return { success: false, error: 'Invalid settings structure' };
+  }
+  
+  // 安全清理：清理设置数据
+  const sanitizedSettings = settings.map(setting => ({
+    jql: setting.jql ? securityUtils.sanitizeInput(setting.jql) : ''
+  }));
+  
+  log('Extracted and sanitized settings', { sanitizedSettings, schedulePeriod, gmtScheduleTime });
 
   // Helper to extract and validate schedulePeriod as Option object
   const extractSchedulePeriod = (val) => {
@@ -94,13 +106,13 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   const validatedScheduleTime = isValidTimeFormat(safeScheduleTime) ? safeScheduleTime : '17:00';
 
   // Store the whole settings array under a single key for simplicity and retrieval
-  await storage.set('settings', settings);
+  await storage.set('settings', sanitizedSettings);
 
   // Store schedule settings separately (always as strings)
   await storage.set('schedulePeriod', safeSchedulePeriod);
   await storage.set('scheduleTime', validatedScheduleTime);
 
-  log('Saved user settings', { settings });
+  log('Saved user settings', { sanitizedSettings });
   log('Stored schedule period', {safeSchedulePeriod});
   log('Stored schedule time', {validatedScheduleTime});
   return { success: true };
@@ -751,112 +763,45 @@ export const checkDueDateAlert = async () => {
 };
 
 // Enhanced JQL search using POST method
-resolver.define('searchIssuesWithJql', async (req) => {
-  const { jql, maxResults = 50, fields = ['key', 'summary', 'status', 'priority', 'assignee', 'duedate', 'updated'] } = req.payload;
+resolver.define('searchIssuesWithJql', async ({ payload }) => {
+  const { jql, maxResults = 50, fields = ['key', 'summary', 'status', 'priority', 'assignee', 'duedate', 'updated'] } = payload;
   
-  log('Processing enhanced JQL search request', { 
-    jql, 
+  log('Starting JQL search with security validation', { 
+    jql: jql ? jql.substring(0, 100) : 'empty', 
     maxResults, 
-    fieldsCount: fields.length 
+    fields 
   });
   
-  if (!jql || typeof jql !== 'string') {
-    log('Invalid JQL query provided', { jql, type: typeof jql });
-    throw new Error('JQL query is required and must be a string');
+  // 安全验证：验证JQL查询
+  if (!jql || !jql.trim()) {
+    log('Empty JQL query provided');
+    return { success: false, error: 'JQL query cannot be empty' };
   }
   
+  if (!securityUtils.validateJqlQuery(jql)) {
+    log('Invalid or dangerous JQL query detected', { jql: jql.substring(0, 100) });
+    return { success: false, error: 'Invalid or potentially dangerous JQL query' };
+  }
+  
+  // 安全清理：清理JQL查询
+  const sanitizedJql = securityUtils.sanitizeInput(jql);
+  
+  log('JQL query validated and sanitized', { 
+    originalLength: jql.length, 
+    sanitizedLength: sanitizedJql.length,
+    jql: sanitizedJql.substring(0, 100) 
+  });
+  
   try {
-    // 使用POST方法进行增强JQL搜索
-    const requestBody = {
-      jql: jql.trim(),
-      maxResults: Math.min(maxResults, 100), // 限制最大结果为100
-      fields: fields
-    };
-    
-    log('Making enhanced JQL search request', { 
-      endpoint: '/rest/api/3/search/jql',
-      requestBody: { ...requestBody, jql: requestBody.jql.substring(0, 100) + (requestBody.jql.length > 100 ? '...' : '') }
+    const result = await executeJiraSearch(sanitizedJql, maxResults, fields);
+    log('JQL search completed with security validation', { 
+      success: result.success, 
+      issuesCount: result.issues ? result.issues.length : 0 
     });
-    
-    const jiraApi = api.asApp();
-    const response = await jiraApi.requestJira(route`/rest/api/3/search/jql`, {
-      method: 'POST',
-      headers: {
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(requestBody),
-    });
-    
-    log('Enhanced JQL search response received', { 
-      status: response.status,
-      statusText: response.statusText,
-      ok: response.ok
-    });
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      log('Enhanced JQL search error response', { status: response.status, errorText });
-      throw new Error(`JQL search failed: ${response.status} ${response.statusText} - ${errorText}`);
-    }
-    
-    const data = await response.json();
-    log('Enhanced JQL search data parsed successfully', { 
-      totalIssues: data.total || 0,
-      maxResults: data.maxResults || 0,
-      issuesCount: data.issues ? data.issues.length : 0
-    });
-    
-    // 处理返回的issues数据
-    const issues = data.issues.map(issue => {
-      const issueData = {
-        key: issue.key,
-        summary: issue.fields.summary,
-        status: issue.fields.status?.name,
-        priority: issue.fields.priority?.name,
-        assignee: issue.fields.assignee?.displayName,
-        dueDate: issue.fields.duedate,
-        updated: issue.fields.updated,
-        fields: {}
-      };
-      
-      // 包含请求的所有字段
-      fields.forEach(field => {
-        if (issue.fields[field] !== undefined) {
-          issueData.fields[field] = issue.fields[field];
-        }
-      });
-      
-      log('Processing search result issue', { 
-        key: issueData.key,
-        hasDueDate: !!issueData.dueDate,
-        status: issueData.status,
-        priority: issueData.priority
-      });
-      
-      return issueData;
-    });
-    
-    log('Enhanced JQL search completed successfully', { 
-      totalResults: data.total,
-      returnedIssues: issues.length,
-      maxResults: data.maxResults
-    });
-    
-    return {
-      success: true,
-      data: {
-        issues: issues,
-        total: data.total || 0,
-        maxResults: data.maxResults || 0
-      }
-    };
-  } catch (err) {
-    log('Error in enhanced JQL search', { error: err.message, stack: err.stack });
-    return {
-      success: false,
-      error: err.message
-    };
+    return result;
+  } catch (error) {
+    log('Error in secure JQL search', { error: error.message });
+    return { success: false, error: error.message };
   }
 });
 
@@ -1079,3 +1024,139 @@ resolver.define('saveschedulePeriod', async (req) => {
 });
 
 export const handler = resolver.getDefinitions();
+
+// 安全验证工具函数
+const securityUtils = {
+  // 验证JQL查询的安全性，防止注入攻击
+  validateJqlQuery: (jql) => {
+    if (!jql || typeof jql !== 'string') return false;
+    
+    // 移除多余空格并转换为小写进行验证
+    const normalizedJql = jql.trim().toLowerCase();
+    
+    // 检查JQL长度限制（防止过长的恶意查询）
+    if (normalizedJql.length > 10000) {
+      log('JQL query too long, potential DoS attack', { length: normalizedJql.length });
+      return false;
+    }
+    
+    // 检查危险的JQL操作符和关键字
+    const dangerousPatterns = [
+      /\bupdate\s+set\b/i,        // UPDATE SET操作
+      /\binsert\s+into\b/i,       // INSERT INTO操作
+      /\bdelete\s+from\b/i,       // DELETE FROM操作
+      /\bdrop\s+table\b/i,        // DROP TABLE操作
+      /\bcreate\s+table\b/i,      // CREATE TABLE操作
+      /\balter\s+table\b/i,       // ALTER TABLE操作
+      /;\s*\w/i,                  // 分号后跟字符（多语句攻击）
+      /--\s*\w/i,                 // SQL注释攻击
+      /\/\*.*\*\//i,              // 多行注释攻击
+      /union\s+select/i,          // UNION SELECT攻击
+      /exec\s*\(/i,               // 执行命令攻击
+      /xp_cmdshell/i,             // SQL Server命令执行
+      /load_file\s*\(/i,          // 文件读取攻击
+      /into\s+outfile/i,          // 文件写入攻击
+      /benchmark\s*\(/i,          // 性能攻击
+      /sleep\s*\(/i,              // 延迟攻击
+      /waitfor\s+delay/i          // SQL Server延迟攻击
+    ];
+    
+    for (const pattern of dangerousPatterns) {
+      if (pattern.test(normalizedJql)) {
+        log('Dangerous JQL pattern detected', { pattern: pattern.source, jql: jql.substring(0, 100) });
+        return false;
+      }
+    }
+    
+    // 验证JQL基本结构（必须包含有效的Jira字段和操作符）
+    const validJqlStructure = /^\s*[\w\s\.\=\!\<\>\~\+\-\*\(\)\"\'\[\]]+$/i;
+    if (!validJqlStructure.test(jql)) {
+      log('Invalid JQL structure detected', { jql: jql.substring(0, 100) });
+      return false;
+    }
+    
+    return true;
+  },
+  
+  // 验证Webhook URL的安全性
+  validateWebhookUrl: (url) => {
+    if (!url || typeof url !== 'string') return false;
+    
+    const normalizedUrl = url.trim();
+    
+    // 检查URL长度限制
+    if (normalizedUrl.length > 2000) {
+      log('Webhook URL too long', { length: normalizedUrl.length });
+      return false;
+    }
+    
+    // 验证URL格式
+    try {
+      const urlObj = new URL(normalizedUrl);
+      
+      // 只允许HTTPS协议（生产环境要求）
+      if (urlObj.protocol !== 'https:') {
+        log('Webhook URL must use HTTPS', { protocol: urlObj.protocol });
+        return false;
+      }
+      
+      // 检查域名白名单（可选，根据需求配置）
+      const allowedDomains = [
+        'webhook.office.com',      // Microsoft Teams
+        'open.feishu.cn',          // 飞书
+        'hooks.slack.com',         // Slack
+        'hooks.zapier.com',        // Zapier
+        'webhook.site'             // 测试用途
+      ];
+      
+      const isDomainAllowed = allowedDomains.some(domain => 
+        urlObj.hostname.endsWith(domain)
+      );
+      
+      if (!isDomainAllowed) {
+        log('Webhook domain not in allowed list', { hostname: urlObj.hostname });
+        return false;
+      }
+      
+      return true;
+    } catch (error) {
+      log('Invalid webhook URL format', { error: error.message, url: normalizedUrl.substring(0, 100) });
+      return false;
+    }
+  },
+  
+  // 清理和转义用户输入
+  sanitizeInput: (input) => {
+    if (typeof input !== 'string') return input;
+    
+    // 移除潜在的恶意字符
+    return input
+      .replace(/[<>\"\']/g, '')  // 移除HTML/XML特殊字符
+      .replace(/\s+/g, ' ')       // 规范化空格
+      .trim()                     // 移除首尾空格
+      .substring(0, 10000);       // 长度限制
+  },
+  
+  // 验证设置数据的结构
+  validateSettingsStructure: (settings) => {
+    if (!Array.isArray(settings)) return false;
+    
+    // 限制设置项数量
+    if (settings.length > 50) {
+      log('Too many settings items', { count: settings.length });
+      return false;
+    }
+    
+    for (const setting of settings) {
+      if (typeof setting !== 'object' || setting === null) return false;
+      
+      // 验证每个设置项的结构
+      if (setting.jql && typeof setting.jql !== 'string') return false;
+      
+      // 验证JQL长度
+      if (setting.jql && setting.jql.length > 10000) return false;
+    }
+    
+    return true;
+  }
+};

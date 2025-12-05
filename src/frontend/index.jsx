@@ -100,7 +100,7 @@ const App = () => {
   const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('');
   const [slackWebhookUrl, setSlackWebhookUrl] = useState(''); // 新增Slack Webhook URL状态
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState();
+  const [error, setError] = useState('');
   const [webhookError, setWebhookError] = useState('');
   const [message, setMessage] = useState('');
 
@@ -294,6 +294,9 @@ const App = () => {
     if (webhookError) {
       setWebhookError('');
     }
+    if (error) {
+      setError('');
+    }
   };
   
   // Handle Slack Webhook URL change
@@ -303,6 +306,9 @@ const App = () => {
     setSlackWebhookUrl(newUrl);
     if (webhookError) {
       setWebhookError('');
+    }
+    if (error) {
+      setError('');
     }
   };
 

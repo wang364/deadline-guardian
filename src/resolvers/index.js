@@ -1068,13 +1068,6 @@ const securityUtils = {
       }
     }
     
-    // 验证JQL基本结构（必须包含有效的Jira字段和操作符）
-    const validJqlStructure = /^\s*[\w\s\.\=\!\<\>\~\+\-\*\(\)\"\'\[\]]+$/i;
-    if (!validJqlStructure.test(jql)) {
-      log('Invalid JQL structure detected', { jql: jql.substring(0, 100) });
-      return false;
-    }
-    
     return true;
   },
   

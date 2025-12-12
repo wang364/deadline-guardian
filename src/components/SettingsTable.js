@@ -1,27 +1,11 @@
 import React, { useState } from 'react';
+import PropTypes from 'prop-types';
 import { Box, Button, Textfield, DynamicTable, Text, Inline, Lozenge, Spinner, SectionMessage } from '@forge/react';
 import { invoke } from '@forge/bridge';
 
 const SettingsTable = ({ settings, setSettings }) => {
   const [testResults, setTestResults] = useState({});
   const [loadingTests, setLoadingTests] = useState({});
-
-  // Use functional updates to avoid stale closures and race conditions
-  const addRow = () => {
-    setSettings(prev => [...prev, { jql: '' }]);
-  };
-
-  const deleteRow = (index) => {
-    setSettings(prev => {
-      const newSettings = [...prev];
-      newSettings.splice(index, 1);
-      // Ensure at least one empty row exists
-      if (newSettings.length === 0) {
-        newSettings.push({ jql: '' });
-      }
-      return newSettings;
-    });
-  };
 
   const handleChange = (index, field, value) => {
     console.log(value);
@@ -64,9 +48,9 @@ const SettingsTable = ({ settings, setSettings }) => {
           ...prev,
           [index]: {
             success: true,
-            message: `Found ${result.data.issues.length} issues`,
-            issues: result.data.issues.length,
-            sampleIssues: result.data.issues.slice(0, 3) // Show first 3 issues as sample
+            message: `Found ${result.issues.length} issues`,
+            issues: result.issues.length,
+            sampleIssues: result.issues.slice(0, 3) // Show first 3 issues as sample
           }
         }));
       } else {
@@ -101,30 +85,6 @@ const SettingsTable = ({ settings, setSettings }) => {
       delete newResults[index];
       return newResults;
     });
-  };
-
-  // Prepare table header
-  const head = {
-    cells: [
-      {
-        key: "jql",
-        content: "JQL Query",
-        shouldTruncate: false,
-        isSortable: false,
-      },
-      {
-        key: "test",
-        content: "Test",
-        shouldTruncate: true,
-        isSortable: false,
-      },
-      {
-        key: "actions",
-        content: "Actions",
-        shouldTruncate: true,
-        isSortable: false,
-      },
-    ],
   };
 
   // Prepare row data - ensure at least one empty row exists when settings is empty
@@ -198,12 +158,6 @@ const SettingsTable = ({ settings, setSettings }) => {
           </Box>
         ),
       },
-      /* {
-        key: `actions-${index}`,
-        content: (
-          <Button appearance="danger" onClick={() => deleteRow(index)}>Delete</Button>
-        ),
-      }, */
     ],
   }));
 
@@ -212,19 +166,25 @@ const SettingsTable = ({ settings, setSettings }) => {
       <Text size="large" weight="bold">JQL Query Settings</Text>
       <Box paddingTop="space.100">
         <DynamicTable
-          // head={head}
           rows={rows}
           isFixedSize
           // No emptyView needed as we always have at least one row
         />
       </Box>
-      {/* <Box padding="medium" paddingTop="none">
-        <Inline>
-          <Button appearance="primary" onClick={addRow}>Add New JQL Query</Button>
-        </Inline>
-      </Box> */}
     </Box>
   );
+};
+
+SettingsTable.propTypes = {
+  /** Array of JQL query settings */
+  settings: PropTypes.arrayOf(
+    PropTypes.shape({
+      /** JQL query string */
+      jql: PropTypes.string
+    })
+  ).isRequired,
+  /** Function to update settings */
+  setSettings: PropTypes.func.isRequired
 };
 
 export default SettingsTable;

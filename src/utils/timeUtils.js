@@ -8,7 +8,8 @@ const isValidTimeFormat = (time) => {
   if (!time || typeof time !== 'string') return false;
   const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
   const trimmedTime = time.trim();
-  const match = trimmedTime.match(timeRegex);
+  // 使用 RegExp.exec() 以便获得更一致的匹配行为
+  const match = timeRegex.exec(trimmedTime);
   
   if (!match) return false;
   

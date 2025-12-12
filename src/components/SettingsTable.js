@@ -111,8 +111,11 @@ const SettingsTable = ({ settings, setSettings }) => {
                     <Text>{testResults[index].message}</Text>
                     {testResults[index].success && testResults[index].sampleIssues && (
                       <Box paddingTop="space.100">
-                        {testResults[index].sampleIssues.map((issue, i) => (
-                          <Box key={i} paddingTop="space.050">
+                        {testResults[index].sampleIssues.map((issue) => (
+                          <Box
+                            key={issue.id || issue.key}
+                            paddingTop="space.050"
+                          >
                             <Inline>
                               <Lozenge appearance="inprogress">{issue.key}</Lozenge>
                               <Text size="small">{issue.fields.summary}</Text>

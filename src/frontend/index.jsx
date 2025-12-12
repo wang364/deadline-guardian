@@ -229,7 +229,7 @@ const App = () => {
   // Handle Feishu Webhook URL change
   const handleFeishuWebhookUrlChange = (value) => {
     const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
-    console.log('Feishu webhook URL changed:', newUrl ? newUrl : 'empty');
+    console.log('Feishu webhook URL changed:', newUrl);
     setFeishuWebhookUrl(newUrl);
     if (webhookError) {
       setWebhookError('');
@@ -242,7 +242,7 @@ const App = () => {
   // Handle Slack Webhook URL change
   const handleSlackWebhookUrlChange = (value) => {
     const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
-    console.log('Slack webhook URL changed:', newUrl ? newUrl : 'empty');
+    console.log('Slack webhook URL changed:', newUrl);
     setSlackWebhookUrl(newUrl);
     if (webhookError) {
       setWebhookError('');

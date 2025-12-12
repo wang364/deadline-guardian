@@ -1,5 +1,6 @@
 import Resolver from '@forge/resolver';
 import api, { storage, route } from '@forge/api';
+const timeUtils = require('../utils/timeUtils');
 
 const resolver = new Resolver();
 
@@ -89,22 +90,6 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   const safeScheduleTime = extractScheduleTime(gmtScheduleTime);
 
   // 使用共享的时间工具函数验证时间格式
-  const timeUtils = {
-    isValidTimeFormat: (time) => {
-      if (!time || typeof time !== 'string') return false;
-      const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-      const trimmedTime = time.trim();
-      const match = trimmedTime.match(timeRegex);
-      
-      if (!match) return false;
-      
-      const hours = Number.parseInt(match[1], 10);
-      const minutes = Number.parseInt(match[2], 10);
-      
-      return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
-    }
-  };
-  
   const validatedScheduleTime = timeUtils.isValidTimeFormat(safeScheduleTime) ? safeScheduleTime : '17:00';
 
   // Store the whole settings array under a single key for simplicity and retrieval
@@ -970,54 +955,6 @@ resolver.define('saveschedulePeriod', async (req) => {
 
 // 时间工具函数解析器
 resolver.define('getTimeUtils', async () => {
-  const timeUtils = {
-    isValidTimeFormat: (time) => {
-      if (!time || typeof time !== 'string') return false;
-      const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-      const trimmedTime = time.trim();
-      const match = trimmedTime.match(timeRegex);
-      
-      if (!match) return false;
-      
-      const hours = Number.parseInt(match[1], 10);
-      const minutes = Number.parseInt(match[2], 10);
-      
-      return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
-    },
-    
-    convertLocalTimeToGMT: (localTime) => {
-      if (!localTime || typeof localTime !== 'string') return localTime;
-      
-      const [hours, minutes] = localTime.split(':').map(Number.parseInt);
-      const now = new Date();
-      now.setHours(hours, minutes, 0, 0);
-      
-      // 转换为GMT时间
-      const gmtHours = now.getUTCHours().toString().padStart(2, '0');
-      const gmtMinutes = now.getUTCMinutes().toString().padStart(2, '0');
-      
-      return `${gmtHours}:${gmtMinutes}`;
-    },
-    
-    convertGMTToLocalTime: (gmtTime) => {
-      if (!gmtTime || typeof gmtTime !== 'string') return gmtTime;
-      
-      const [hours, minutes] = gmtTime.split(':').map(Number.parseInt);
-      const now = new Date();
-      now.setUTCHours(hours, minutes, 0, 0);
-      
-      // 转换为本地时间
-      const localHours = now.getHours().toString().padStart(2, '0');
-      const localMinutes = now.getMinutes().toString().padStart(2, '0');
-      
-      return `${localHours}:${localMinutes}`;
-    },
-    
-    getTimezoneOffset: () => {
-      return new Date().getTimezoneOffset();
-    }
-  };
-  
   return timeUtils;
 });
 

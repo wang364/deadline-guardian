@@ -88,22 +88,24 @@ resolver.define('saveUserSettings', async ({ payload }) => {
   const safeSchedulePeriod = extractSchedulePeriod(schedulePeriod);
   const safeScheduleTime = extractScheduleTime(gmtScheduleTime);
 
-  // 改进的时间格式验证，支持多种格式：H:M, HH:M, H:MM, HH:MM
-  const isValidTimeFormat = (time) => {
-    if (!time || typeof time !== 'string') return false;
-    const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-    const trimmedTime = time.trim();
-    const match = trimmedTime.match(timeRegex);
-    
-    if (!match) return false;
-    
-    const hours = Number.parseInt(match[1], 10);
-    const minutes = Number.parseInt(match[2], 10);
-    
-    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+  // 使用共享的时间工具函数验证时间格式
+  const timeUtils = {
+    isValidTimeFormat: (time) => {
+      if (!time || typeof time !== 'string') return false;
+      const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+      const trimmedTime = time.trim();
+      const match = trimmedTime.match(timeRegex);
+      
+      if (!match) return false;
+      
+      const hours = Number.parseInt(match[1], 10);
+      const minutes = Number.parseInt(match[2], 10);
+      
+      return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+    }
   };
   
-  const validatedScheduleTime = isValidTimeFormat(safeScheduleTime) ? safeScheduleTime : '17:00';
+  const validatedScheduleTime = timeUtils.isValidTimeFormat(safeScheduleTime) ? safeScheduleTime : '17:00';
 
   // Store the whole settings array under a single key for simplicity and retrieval
   await storage.set('settings', sanitizedSettings);
@@ -212,24 +214,9 @@ resolver.define('getscheduleTime', async () => {
     }
   }
 
-  // 改进的时间格式验证，支持多种格式：H:M, HH:M, H:MM, HH:MM
-  const isValidTimeFormat = (time) => {
-    if (!time || typeof time !== 'string') return false;
-    const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-    const trimmedTime = time.trim();
-    const match = trimmedTime.match(timeRegex);
-    
-    if (!match) return false;
-    
-    const hours = Number.parseInt(match[1], 10);
-    const minutes = Number.parseInt(match[2], 10);
-    
-    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
-  };
+  log('Validating schedule time format', { scheduleTime, isValid: timeUtils.isValidTimeFormat(scheduleTime) });
   
-  log('Validating schedule time format', { scheduleTime, isValid: isValidTimeFormat(scheduleTime) });
-  
-  if (!scheduleTime || typeof scheduleTime !== 'string' || !isValidTimeFormat(scheduleTime)) {
+  if (!scheduleTime || typeof scheduleTime !== 'string' || !timeUtils.isValidTimeFormat(scheduleTime)) {
     const defaultTime = '17:00';
     log('Invalid or missing schedule time, setting default', { defaultTime });
     await storage.set('scheduleTime', defaultTime);
@@ -826,38 +813,62 @@ resolver.define('getFeishuWebhookUrl', async () => {
   return { feishuWebhookUrl: url };
 });
 
-// Save Feishu Webhook URL
-resolver.define('saveFeishuWebhookUrl', async ({ payload }) => {
-  log('Saving user settings', { 
+// 通用的webhook URL保存函数
+const saveWebhookUrl = async (payload, webhookType) => {
+  const webhookConfig = {
+    feishu: {
+      storageKey: 'feishuWebhookUrl',
+      defaultUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/',
+      domainPattern: 'open.feishu.cn',
+      typeName: 'Feishu'
+    },
+    slack: {
+      storageKey: 'slackWebhookUrl',
+      defaultUrl: '',
+      domainPattern: 'hooks.slack.com',
+      typeName: 'Slack'
+    }
+  };
+  
+  const config = webhookConfig[webhookType];
+  if (!config) {
+    throw new Error(`Unsupported webhook type: ${webhookType}`);
+  }
+  
+  const webhookUrl = payload[`${webhookType}WebhookUrl`] || config.defaultUrl;
+  log(`Saving ${config.typeName} webhook URL`, { 
     payloadType: typeof payload,
     payloadKeys: payload ? Object.keys(payload) : []
   });
-  const { feishuWebhookUrl='https://open.feishu.cn/open-apis/bot/v2/hook/' } = payload;
-  log({feishuWebhookUrl});
   
-  if (!feishuWebhookUrl || feishuWebhookUrl.trim() === '') {
+  if (!webhookUrl || webhookUrl.trim() === '') {
     log('Empty URL provided, deleting stored webhook');
-    await storage.delete('feishuWebhookUrl');
-    log('Feishu webhook URL deleted successfully');
+    await storage.delete(config.storageKey);
+    log(`${config.typeName} webhook URL deleted successfully`);
     return { success: true, message: 'Webhook URL deleted' };
   }
   
   // Basic URL validation
-  log('Validating Feishu webhook URL format');
-  if (!feishuWebhookUrl.startsWith('https://')) {
-    log('Invalid Feishu webhook URL format', { url: url.substring(0, 50) + '...' });
+  log(`Validating ${config.typeName} webhook URL format`);
+  if (!webhookUrl.startsWith('https://')) {
+    log(`Invalid ${config.typeName} webhook URL format`, { url: webhookUrl.substring(0, 50) + '...' });
     return { success: false, message: 'URL must start with https://' };
   }
   
-  // Additional validation for Feishu webhook URLs
-  if (!feishuWebhookUrl.includes('open.feishu.cn')) {
-    log('Suspicious Feishu webhook URL format', { url: url.substring(0, 50) + '...' });
-    log('Warning: URL does not contain typical Feishu webhook patterns');
+  // Additional validation for webhook URLs
+  if (!webhookUrl.includes(config.domainPattern)) {
+    log(`Suspicious ${config.typeName} webhook URL format`, { url: webhookUrl.substring(0, 50) + '...' });
+    log(`Warning: URL does not contain typical ${config.typeName} webhook patterns`);
   }
   
-  await storage.set('feishuWebhookUrl', feishuWebhookUrl);
-  log('Feishu webhook URL saved successfully', { urlLength: feishuWebhookUrl.length });
+  await storage.set(config.storageKey, webhookUrl);
+  log(`${config.typeName} webhook URL saved successfully`, { urlLength: webhookUrl.length });
   return { success: true, message: 'Webhook URL saved' };
+};
+
+// Save Feishu Webhook URL
+resolver.define('saveFeishuWebhookUrl', async ({ payload }) => {
+  return saveWebhookUrl(payload, 'feishu');
 });
 
 // Get Slack Webhook URL
@@ -874,35 +885,7 @@ resolver.define('getSlackWebhookUrl', async () => {
 
 // Save Slack Webhook URL
 resolver.define('saveSlackWebhookUrl', async ({ payload }) => {
-  log('Saving Slack webhook URL', { 
-    payloadType: typeof payload,
-    payloadKeys: payload ? Object.keys(payload) : []
-  });
-  const { slackWebhookUrl } = payload;
-  
-  if (!slackWebhookUrl || slackWebhookUrl.trim() === '') {
-    log('Empty URL provided, deleting stored webhook');
-    await storage.delete('slackWebhookUrl');
-    log('Slack webhook URL deleted successfully');
-    return { success: true, message: 'Webhook URL deleted' };
-  }
-  
-  // Basic URL validation
-  log('Validating Slack webhook URL format');
-  if (!slackWebhookUrl.startsWith('https://')) {
-    log('Invalid Slack webhook URL format', { url: slackWebhookUrl.substring(0, 50) + '...' });
-    return { success: false, message: 'URL must start with https://' };
-  }
-  
-  // Additional validation for Slack webhook URLs
-  if (!slackWebhookUrl.includes('hooks.slack.com')) {
-    log('Suspicious Slack webhook URL format', { url: slackWebhookUrl.substring(0, 50) + '...' });
-    log('Warning: URL does not contain typical Slack webhook patterns');
-  }
-  
-  await storage.set('slackWebhookUrl', slackWebhookUrl);
-  log('Slack webhook URL saved successfully', { urlLength: slackWebhookUrl.length });
-  return { success: true, message: 'Webhook URL saved' };
+  return saveWebhookUrl(payload, 'slack');
 });
 
 // Save Jira Site URL
@@ -983,6 +966,59 @@ resolver.define('saveschedulePeriod', async (req) => {
   log('Successfully saved schedulePeriod', schedulePeriod);
   
   return { success: true, schedulePeriod };
+});
+
+// 时间工具函数解析器
+resolver.define('getTimeUtils', async () => {
+  const timeUtils = {
+    isValidTimeFormat: (time) => {
+      if (!time || typeof time !== 'string') return false;
+      const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
+      const trimmedTime = time.trim();
+      const match = trimmedTime.match(timeRegex);
+      
+      if (!match) return false;
+      
+      const hours = Number.parseInt(match[1], 10);
+      const minutes = Number.parseInt(match[2], 10);
+      
+      return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+    },
+    
+    convertLocalTimeToGMT: (localTime) => {
+      if (!localTime || typeof localTime !== 'string') return localTime;
+      
+      const [hours, minutes] = localTime.split(':').map(Number.parseInt);
+      const now = new Date();
+      now.setHours(hours, minutes, 0, 0);
+      
+      // 转换为GMT时间
+      const gmtHours = now.getUTCHours().toString().padStart(2, '0');
+      const gmtMinutes = now.getUTCMinutes().toString().padStart(2, '0');
+      
+      return `${gmtHours}:${gmtMinutes}`;
+    },
+    
+    convertGMTToLocalTime: (gmtTime) => {
+      if (!gmtTime || typeof gmtTime !== 'string') return gmtTime;
+      
+      const [hours, minutes] = gmtTime.split(':').map(Number.parseInt);
+      const now = new Date();
+      now.setUTCHours(hours, minutes, 0, 0);
+      
+      // 转换为本地时间
+      const localHours = now.getHours().toString().padStart(2, '0');
+      const localMinutes = now.getMinutes().toString().padStart(2, '0');
+      
+      return `${localHours}:${localMinutes}`;
+    },
+    
+    getTimezoneOffset: () => {
+      return new Date().getTimezoneOffset();
+    }
+  };
+  
+  return timeUtils;
 });
 
 export const handler = resolver.getDefinitions();

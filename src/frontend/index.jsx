@@ -1,95 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import ForgeReconciler, { Box, Text, Textfield, Button, Select, Label, ErrorMessage, TimePicker } from '@forge/react';
+import React, { useState, useEffect } from 'react';
 import { invoke, view } from '@forge/bridge';
+import {
+  Box,
+  Button,
+  Form,
+  FormFooter,
+  FormHeader,
+  FormSection,
+  Heading,
+  Label,
+  Select,
+  Text,
+  Textfield,
+  TimePicker,
+  ErrorMessage,
+  HelperMessage
+} from '@forge/react';
 import SettingsTable from '../components/SettingsTable';
 
-// 获取用户时区偏移量（分钟）
-const getTimezoneOffset = () => {
-  return new Date().getTimezoneOffset();
+// 使用后端的时间工具函数进行时间转换
+const convertLocalTimeToGMT = async (localTime) => {
+  try {
+    const timeUtils = await invoke('getTimeUtils');
+    return timeUtils.convertLocalTimeToGMT(localTime);
+  } catch (error) {
+    console.error('Error converting local time to GMT:', error);
+    return localTime;
+  }
 };
 
-// 将本地时间转换为GMT时间
-const convertLocalTimeToGMT = (localTime) => {
-  if (!localTime || typeof localTime !== 'string') return '17:00';
-  
-  const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-  const match = localTime.trim().match(timeRegex);
-  
-  if (!match) return localTime;
-  
-  let hours = Number.parseInt(match[1], 10);
-    const minutes = Number.parseInt(match[2], 10);
-  
-  // 获取时区偏移量（分钟）
-  const timezoneOffset = getTimezoneOffset();
-  
-  // 计算GMT时间（本地时间 + 时区偏移）
-  let gmtHours = hours + Math.floor(timezoneOffset / 60);
-  let gmtMinutes = minutes + (timezoneOffset % 60);
-  
-  // 处理分钟进位
-  if (gmtMinutes >= 60) {
-    gmtHours += Math.floor(gmtMinutes / 60);
-    gmtMinutes = gmtMinutes % 60;
-  } else if (gmtMinutes < 0) {
-    gmtHours -= Math.ceil(Math.abs(gmtMinutes) / 60);
-    gmtMinutes = 60 + (gmtMinutes % 60);
+const convertGMTToLocalTime = async (gmtTime) => {
+  try {
+    const timeUtils = await invoke('getTimeUtils');
+    return timeUtils.convertGMTToLocalTime(gmtTime);
+  } catch (error) {
+    console.error('Error converting GMT to local time:', error);
+    return gmtTime;
   }
-  
-  // 处理小时进位和边界
-  if (gmtHours >= 24) {
-    gmtHours = gmtHours % 24;
-  } else if (gmtHours < 0) {
-    gmtHours = 24 + (gmtHours % 24);
-  }
-  
-  // 格式化时间为HH:MM
-  const formattedHours = gmtHours.toString().padStart(2, '0');
-  const formattedMinutes = gmtMinutes.toString().padStart(2, '0');
-  
-  return `${formattedHours}:${formattedMinutes}`;
-};
-
-// 将GMT时间转换为本地时间
-const convertGMTToLocalTime = (gmtTime) => {
-  if (!gmtTime || typeof gmtTime !== 'string') return '17:00';
-  
-  const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-  const match = gmtTime.trim().match(timeRegex);
-  
-  if (!match) return gmtTime;
-  
-  let hours = Number.parseInt(match[1], 10);
-    const minutes = Number.parseInt(match[2], 10);
-  
-  // 获取时区偏移量（分钟）
-  const timezoneOffset = getTimezoneOffset();
-  
-  // 计算本地时间（GMT时间 - 时区偏移）
-  let localHours = hours - Math.floor(timezoneOffset / 60);
-  let localMinutes = minutes - (timezoneOffset % 60);
-  
-  // 处理分钟进位
-  if (localMinutes >= 60) {
-    localHours += Math.floor(localMinutes / 60);
-    localMinutes = localMinutes % 60;
-  } else if (localMinutes < 0) {
-    localHours -= Math.ceil(Math.abs(localMinutes) / 60);
-    localMinutes = 60 + (localMinutes % 60);
-  }
-  
-  // 处理小时进位和边界
-  if (localHours >= 24) {
-    localHours = localHours % 24;
-  } else if (localHours < 0) {
-    localHours = 24 + (localHours % 24);
-  }
-  
-  // 格式化时间为HH:MM
-  const formattedHours = localHours.toString().padStart(2, '0');
-  const formattedMinutes = localMinutes.toString().padStart(2, '0');
-  
-  return `${formattedHours}:${formattedMinutes}`;
 };
 
 const App = () => {
@@ -137,18 +84,15 @@ const App = () => {
   };
   
   // 改进的时间格式验证函数，支持多种格式：H:M, HH:M, H:MM, HH:MM
-  const isValidTimeFormat = (time) => {
-    if (!time || typeof time !== 'string') return false;
-    const timeRegex = /^(\d{1,2}):(\d{1,2})$/;
-    const trimmedTime = time.trim();
-    const match = trimmedTime.match(timeRegex);
-    
-    if (!match) return false;
-    
-    const hours = Number.parseInt(match[1], 10);
-      const minutes = Number.parseInt(match[2], 10);
-    
-    return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
+  // 使用后端的时间工具函数
+  const validateTimeFormat = async (time) => {
+    try {
+      const timeUtils = await invoke('getTimeUtils');
+      return timeUtils.isValidTimeFormat(time);
+    } catch (error) {
+      console.error('Error validating time format:', error);
+      return false;
+    }
   };
 
   useEffect(() => {
@@ -169,7 +113,8 @@ const App = () => {
         // 获取调度时间
         const timeResponse = await invoke('getscheduleTime');
         const timeData = timeResponse.scheduleTime || '17:00';
-        setScheduleTime(convertGMTToLocalTime(timeData));
+        const localTime = await convertGMTToLocalTime(timeData);
+        setScheduleTime(localTime);
         
         // 获取飞书Webhook URL
         const feishuWebhookResponse = await invoke('getFeishuWebhookUrl');
@@ -194,7 +139,8 @@ const App = () => {
   const handleSaveSettings = async () => {
     try {
       // 保存前验证时间格式
-      if (!isValidTimeFormat(scheduleTime)) {
+      const isValidTime = await validateTimeFormat(scheduleTime);
+      if (!isValidTime) {
         setError('Please enter a valid time format (HH:MM)');
         return;
       }
@@ -225,11 +171,11 @@ const App = () => {
       }
       
       // 将用户输入的本地时间转换为GMT时间进行存储
-      const gmtScheduleTime = convertLocalTimeToGMT(scheduleTime);
+      const gmtScheduleTime = await convertLocalTimeToGMT(scheduleTime);
       console.log('Time conversion:', { 
         localTime: scheduleTime, 
         gmtTime: gmtScheduleTime,
-        timezoneOffset: getTimezoneOffset()
+        timezoneOffset: await invoke('getTimeUtils').then(utils => utils.getTimezoneOffset())
       });
       
       // 保存飞书Webhook URL

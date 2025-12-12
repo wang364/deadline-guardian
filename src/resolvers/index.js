@@ -954,8 +954,34 @@ resolver.define('saveschedulePeriod', async (req) => {
 });
 
 // 时间工具函数解析器
+// 单独暴露具体方法，避免返回包含函数的对象导致序列化问题
+resolver.define('validateTimeFormat', async (req) => {
+  const time = req?.payload?.time;
+  return timeUtils.isValidTimeFormat(time);
+});
+
+resolver.define('convertLocalTimeToGMT', async (req) => {
+  const localTime = req?.payload?.localTime;
+  return timeUtils.convertLocalTimeToGMT(localTime);
+});
+
+resolver.define('convertGMTToLocalTime', async (req) => {
+  const gmtTime = req?.payload?.gmtTime;
+  return timeUtils.convertGMTToLocalTime(gmtTime);
+});
+
+resolver.define('getTimezoneOffset', async () => {
+  return timeUtils.getTimezoneOffset();
+});
+
+// 兼容旧调用：返回纯对象（不包含函数）以防序列化问题
 resolver.define('getTimeUtils', async () => {
-  return timeUtils;
+  return {
+    convertLocalTimeToGMT: timeUtils.convertLocalTimeToGMT,
+    convertGMTToLocalTime: timeUtils.convertGMTToLocalTime,
+    getTimezoneOffset: timeUtils.getTimezoneOffset,
+    isValidTimeFormat: timeUtils.isValidTimeFormat
+  };
 });
 
 export const handler = resolver.getDefinitions();

@@ -12,11 +12,10 @@ import ForgeReconciler, {
 } from '@forge/react';
 import SettingsTable from '../components/SettingsTable';
 
-// 使用后端的时间工具函数进行时间转换
+// 使用后端解析器封装时间转换，避免直接传递包含函数的对象
 const convertLocalTimeToGMT = async (localTime) => {
   try {
-    const timeUtils = await invoke('getTimeUtils');
-    return timeUtils.convertLocalTimeToGMT(localTime);
+    return await invoke('convertLocalTimeToGMT', { localTime });
   } catch (error) {
     console.error('Error converting local time to GMT:', error);
     return localTime;
@@ -25,8 +24,7 @@ const convertLocalTimeToGMT = async (localTime) => {
 
 const convertGMTToLocalTime = async (gmtTime) => {
   try {
-    const timeUtils = await invoke('getTimeUtils');
-    return timeUtils.convertGMTToLocalTime(gmtTime);
+    return await invoke('convertGMTToLocalTime', { gmtTime });
   } catch (error) {
     console.error('Error converting GMT to local time:', error);
     return gmtTime;
@@ -81,8 +79,7 @@ const App = () => {
   // 使用后端的时间工具函数
   const validateTimeFormat = async (time) => {
     try {
-      const timeUtils = await invoke('getTimeUtils');
-      return timeUtils.isValidTimeFormat(time);
+      return await invoke('validateTimeFormat', { time });
     } catch (error) {
       console.error('Error validating time format:', error);
       return false;
@@ -169,7 +166,7 @@ const App = () => {
       console.log('Time conversion:', { 
         localTime: scheduleTime, 
         gmtTime: gmtScheduleTime,
-        timezoneOffset: await invoke('getTimeUtils').then(utils => utils.getTimezoneOffset())
+        timezoneOffset: await invoke('getTimezoneOffset')
       });
       
       // 保存飞书Webhook URL

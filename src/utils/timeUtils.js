@@ -28,7 +28,8 @@ const isValidTimeFormat = (time) => {
 const convertLocalTimeToGMT = (localTime) => {
   if (!isValidTimeFormat(localTime)) return localTime;
   
-  const [hours, minutes] = localTime.split(':').map(Number.parseInt);
+  // Use explicit radix to avoid RangeError from map(Number.parseInt)
+  const [hours, minutes] = localTime.split(':').map(part => Number.parseInt(part, 10));
   const now = new Date();
   now.setHours(hours, minutes, 0, 0);
   
@@ -48,7 +49,8 @@ const convertLocalTimeToGMT = (localTime) => {
 const convertGMTToLocalTime = (gmtTime) => {
   if (!isValidTimeFormat(gmtTime)) return gmtTime;
   
-  const [hours, minutes] = gmtTime.split(':').map(Number.parseInt);
+  // Use explicit radix to avoid RangeError from map(Number.parseInt)
+  const [hours, minutes] = gmtTime.split(':').map(part => Number.parseInt(part, 10));
   const now = new Date();
   now.setUTCHours(hours, minutes, 0, 0);
   

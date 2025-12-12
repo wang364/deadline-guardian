@@ -97,8 +97,8 @@ resolver.define('saveUserSettings', async ({ payload }) => {
     
     if (!match) return false;
     
-    const hours = parseInt(match[1], 10);
-    const minutes = parseInt(match[2], 10);
+    const hours = Number.parseInt(match[1], 10);
+    const minutes = Number.parseInt(match[2], 10);
     
     return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
   };
@@ -221,8 +221,8 @@ resolver.define('getscheduleTime', async () => {
     
     if (!match) return false;
     
-    const hours = parseInt(match[1], 10);
-    const minutes = parseInt(match[2], 10);
+    const hours = Number.parseInt(match[1], 10);
+    const minutes = Number.parseInt(match[2], 10);
     
     return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
   };
@@ -386,255 +386,217 @@ const executeJiraSearch = async (jql) => {
 };
 
 // 处理通知的通用函数
-const processNotification = async (issues) => {
-  try {
-    if (issues.length === 0) {
-      log('No issues to process for notification');
-      return { success: true, issues: [], skipped: false, notification: 'No issues found' };
-    }
-    
-    // 获取所有配置的webhook URL
-    log('Checking webhook configuration');
-    const teamsWebhookUrl = await storage.get('teamsWebhookUrl');
-    const feishuWebhookUrl = await storage.get('feishuWebhookUrl');
-    const slackWebhookUrl = await storage.get('slackWebhookUrl'); // 新增Slack Webhook URL
-    
-    log('Webhook configuration check', { 
-      hasTeamsWebhook: !!teamsWebhookUrl,
-      hasFeishuWebhook: !!feishuWebhookUrl,
-      hasSlackWebhook: !!slackWebhookUrl, // 新增Slack检查
-      teamsWebhookUrl: teamsWebhookUrl ? '[REDACTED]' : null,
-      feishuWebhookUrl: feishuWebhookUrl ? '[REDACTED]' : null,
-      slackWebhookUrl: slackWebhookUrl ? '[REDACTED]' : null // 新增Slack URL日志
-    });
-    
-    // 检查是否有配置的webhook
-    const webhooks = [];
-    if (teamsWebhookUrl) {
-      webhooks.push({ url: teamsWebhookUrl, type: 'teams' });
-    }
-    if (feishuWebhookUrl) {
-      webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
-    }
-    if (slackWebhookUrl) {
-      webhooks.push({ url: slackWebhookUrl, type: 'slack' }); // 新增Slack webhook
-    }
-    
-    if (webhooks.length === 0) {
-      log('No webhook URLs configured, skipping notification');
-      return { success: true, issues, skipped: false, notification: 'No webhook configured' };
-    }
-    
-    // 格式化到期日期
-    const formatDueDate = (dueDate) => {
-      if (!dueDate) return 'No due date';
-      const date = new Date(dueDate);
-      const today = new Date();
-      const diffTime = date - today;
-      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-      
-      if (diffDays < 0) return `${dueDate} (Overdue)`;
-      if (diffDays === 0) return `${dueDate} (Due today)`;
-      if (diffDays === 1) return `${dueDate} (Due tomorrow)`;
-      return `${dueDate} (${diffDays} days remaining)`;
-    };
-    
-    // 创建通知消息函数
-    const createTeamsMessage = (issues) => {
-      return {
-        "@type": "MessageCard",
-        "@context": "http://schema.org/extensions",
-        "themeColor": "007ACC", // 蓝色色调，与logo保持一致
-        "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
-        "title": "🔔 Jira Issue Reminder",
-        "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
-        "sections": [{
-          "activityTitle": "📋 Issues Requiring Attention",
-          "facts": issues.map(issue => ({
-            "name": `**[${issue.key}](${issue.link})** - ${issue.summary}`,
-            "value": `📅 ${formatDueDate(issue.dueDate)}\n👤 Assignee: ${issue.assignee || 'Unassigned'}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
-          })),
-          "markdown": true
-        }],
+// 格式化到期日期
+const formatDueDate = (dueDate) => {
+  if (!dueDate) return 'No due date';
+  const date = new Date(dueDate);
+  const today = new Date();
+  const diffTime = date - today;
+  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (diffDays < 0) return `${dueDate} (Overdue)`;
+  if (diffDays === 0) return `${dueDate} (Due today)`;
+  if (diffDays === 1) return `${dueDate} (Due tomorrow)`;
+  return `${dueDate} (${diffDays} days remaining)`;
+};
 
-      };
-    };
-    
-    const createFeishuMessage = (issues) => {
-      const issueList = issues.map(issue => {
-        const dueDateInfo = formatDueDate(issue.dueDate);
-        return `• **<u>[${issue.key}](${issue.link})</u>** - ${issue.summary} \n 📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`;
-      }).join('\n');
-      
-      return {
-        "msg_type": "interactive",
-        "card": {
-          "config": {
-            "wide_screen_mode": true,
-            "enable_forward": true
-          },
-          "header": {
-            "title": {
-              "tag": "plain_text",
-              "content": "🔔 Jira Issue Reminder"
-            },
-            "template": "blue" // 将橙色改为蓝色
-          },
-          "elements": [
-            {
-              "tag": "div",
-              "text": {
-                "tag": "lark_md",
-                "content": `You have **${issues.length}** Jira issue(s) that require attention:\n\n${issueList}`
-              }
-            },
+// 创建Teams消息
+const createTeamsMessage = (issues) => ({
+  "@type": "MessageCard",
+  "@context": "http://schema.org/extensions",
+  "themeColor": "007ACC",
+  "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
+  "title": "🔔 Jira Issue Reminder",
+  "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
+  "sections": [{
+    "activityTitle": "📋 Issues Requiring Attention",
+    "facts": issues.map(issue => ({
+      "name": `**[${issue.key}](${issue.link})** - ${issue.summary}`,
+      "value": `📅 ${formatDueDate(issue.dueDate)}\n👤 Assignee: ${issue.assignee || 'Unassigned'}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
+    })),
+    "markdown": true
+  }]
+});
 
-          ]
+// 创建飞书消息
+const createFeishuMessage = (issues) => {
+  const issueList = issues.map(issue => {
+    const dueDateInfo = formatDueDate(issue.dueDate);
+    return `• **<u>[${issue.key}](${issue.link})</u>** - ${issue.summary} \n 📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`;
+  }).join('\n');
+  
+  return {
+    "msg_type": "interactive",
+    "card": {
+      "config": { "wide_screen_mode": true, "enable_forward": true },
+      "header": {
+        "title": { "tag": "plain_text", "content": "🔔 Jira Issue Reminder" },
+        "template": "blue"
+      },
+      "elements": [{
+        "tag": "div",
+        "text": {
+          "tag": "lark_md",
+          "content": `You have **${issues.length}** Jira issue(s) that require attention:\n\n${issueList}`
         }
-      };
-    };
-    
-    // 新增Slack消息创建函数
-    const createSlackMessage = (issues) => {
-      const issueBlocks = issues.map(issue => {
-        const dueDateInfo = formatDueDate(issue.dueDate);
-        return {
-          "type": "section",
-          "text": {
-            "type": "mrkdwn",
-            "text": `*<${issue.link}|${issue.key}>* - ${issue.summary}\n📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`
-          }
-        };
-      });
-      
-      return {
-        "blocks": [
-          {
-            "type": "header",
-            "text": {
-              "type": "plain_text",
-              "text": "🔔 Jira Issue Reminder",
-              "emoji": true
-            }
-          },
-          {
-            "type": "section",
-            "text": {
-              "type": "mrkdwn",
-              "text": `You have *${issues.length}* Jira issue(s) that require attention:`
-            }
-          },
-          {
-            "type": "divider"
-          },
-          ...issueBlocks
-        ]
-      };
-    };
-    
-    // 向所有配置的webhook发送通知
-    const notificationResults = [];
-    
-    for (const webhook of webhooks) {
-      try {
-        let alertMessage = null;
-        
-        if (webhook.type === 'teams') {
-          alertMessage = createTeamsMessage(issues);
-        } else if (webhook.type === 'feishu') {
-          alertMessage = createFeishuMessage(issues);
-        } else if (webhook.type === 'slack') {
-          alertMessage = createSlackMessage(issues); // 新增Slack消息处理
-        }
-        
-        if (alertMessage) {
-          log(`Sending notification to ${webhook.type} webhook`, { 
-            webhookType: webhook.type,
-            issuesCount: issues.length,
-            messageType: typeof alertMessage
-          });
-          
-          const response = await fetch(webhook.url, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(alertMessage),
-          });
-          
-          if (response.ok) {
-            log(`Notification sent successfully to ${webhook.type}`);
-            notificationResults.push({ 
-              type: webhook.type, 
-              success: true, 
-              status: response.status 
-            });
-          } else {
-            log(`Failed to send notification to ${webhook.type}`, { 
-              status: response.status,
-              statusText: response.statusText 
-            });
-            notificationResults.push({ 
-              type: webhook.type, 
-              success: false, 
-              status: response.status,
-              error: response.statusText 
-            });
-          }
-        }
-      } catch (error) {
-        log(`Error sending notification to ${webhook.type}`, { 
-          error: error.message,
-          webhookType: webhook.type 
-        });
-        notificationResults.push({ 
-          type: webhook.type, 
-          success: false, 
-          error: error.message 
-        });
+      }]
+    }
+  };
+};
+
+// 创建Slack消息
+const createSlackMessage = (issues) => {
+  const issueBlocks = issues.map(issue => {
+    const dueDateInfo = formatDueDate(issue.dueDate);
+    return {
+      "type": "section",
+      "text": {
+        "type": "mrkdwn",
+        "text": `*<${issue.link}|${issue.key}>* - ${issue.summary}\n📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`
       }
+    };
+  });
+  
+  return {
+    "blocks": [
+      {
+        "type": "header",
+        "text": { "type": "plain_text", "text": "🔔 Jira Issue Reminder", "emoji": true }
+      },
+      {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": `You have *${issues.length}* Jira issue(s) that require attention:`
+        }
+      },
+      { "type": "divider" },
+      ...issueBlocks
+    ]
+  };
+};
+
+// 消息创建器映射
+const messageCreators = {
+  teams: createTeamsMessage,
+  feishu: createFeishuMessage,
+  slack: createSlackMessage
+};
+
+// 发送单个webhook通知
+const sendWebhookNotification = async (webhook, issues) => {
+  try {
+    const createMessage = messageCreators[webhook.type];
+    if (!createMessage) {
+      log(`Unsupported webhook type: ${webhook.type}`);
+      return { type: webhook.type, success: false, error: 'Unsupported webhook type' };
     }
     
-    // 检查通知结果
-    const successfulNotifications = notificationResults.filter(r => r.success);
-    const failedNotifications = notificationResults.filter(r => !r.success);
-    
-    log('Notification results', { 
-      total: notificationResults.length,
-      successful: successfulNotifications.length,
-      failed: failedNotifications.length,
-      failedTypes: failedNotifications.map(f => f.type)
+    const alertMessage = createMessage(issues);
+    log(`Sending notification to ${webhook.type} webhook`, { 
+      webhookType: webhook.type,
+      issuesCount: issues.length
     });
     
-    if (successfulNotifications.length === 0) {
-      log('All notifications failed');
+    const response = await fetch(webhook.url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(alertMessage)
+    });
+    
+    if (response.ok) {
+      log(`Notification sent successfully to ${webhook.type}`);
+      return { type: webhook.type, success: true, status: response.status };
+    } else {
+      log(`Failed to send notification to ${webhook.type}`, { 
+        status: response.status,
+        statusText: response.statusText 
+      });
       return { 
+        type: webhook.type, 
         success: false, 
-        issues, 
-        skipped: false, 
-        notification: 'All notifications failed',
-        notificationResults 
+        status: response.status,
+        error: response.statusText 
       };
     }
-    
-    log('Notification process completed successfully');
-    return { 
-      success: true, 
-      issues, 
-      skipped: false, 
-      notification: `Notifications sent to ${successfulNotifications.length} webhook(s)`,
-      notificationResults 
-    };
-  } catch (err) {
-    log('Error in processNotification', { error: err.message, stack: err.stack });
+  } catch (error) {
+    log(`Error sending notification to ${webhook.type}`, { 
+      error: error.message,
+      webhookType: webhook.type 
+    });
+    return { type: webhook.type, success: false, error: error.message };
+  }
+};
+
+// 获取配置的webhooks
+const getConfiguredWebhooks = async () => {
+  const webhookUrls = await Promise.all([
+    storage.get('teamsWebhookUrl'),
+    storage.get('feishuWebhookUrl'),
+    storage.get('slackWebhookUrl')
+  ]);
+  
+  const [teamsWebhookUrl, feishuWebhookUrl, slackWebhookUrl] = webhookUrls;
+  
+  log('Webhook configuration check', { 
+    hasTeamsWebhook: !!teamsWebhookUrl,
+    hasFeishuWebhook: !!feishuWebhookUrl,
+    hasSlackWebhook: !!slackWebhookUrl
+  });
+  
+  const webhooks = [];
+  if (teamsWebhookUrl) webhooks.push({ url: teamsWebhookUrl, type: 'teams' });
+  if (feishuWebhookUrl) webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
+  if (slackWebhookUrl) webhooks.push({ url: slackWebhookUrl, type: 'slack' });
+  
+  return webhooks;
+};
+
+// 处理通知的通用函数
+const processNotification = async (issues) => {
+  if (issues.length === 0) {
+    log('No issues to process for notification');
+    return { success: true, issues: [], skipped: false, notification: 'No issues found' };
+  }
+  
+  const webhooks = await getConfiguredWebhooks();
+  if (webhooks.length === 0) {
+    log('No webhook URLs configured, skipping notification');
+    return { success: true, issues, skipped: false, notification: 'No webhook configured' };
+  }
+  
+  const notificationResults = await Promise.all(
+    webhooks.map(webhook => sendWebhookNotification(webhook, issues))
+  );
+  
+  const successfulNotifications = notificationResults.filter(r => r.success);
+  const failedNotifications = notificationResults.filter(r => !r.success);
+  
+  log('Notification results', { 
+    total: notificationResults.length,
+    successful: successfulNotifications.length,
+    failed: failedNotifications.length
+  });
+  
+  if (successfulNotifications.length === 0) {
+    log('All notifications failed');
     return { 
       success: false, 
       issues, 
       skipped: false, 
-      notification: 'Error processing notifications',
-      error: err.message 
+      notification: 'All notifications failed',
+      notificationResults 
     };
   }
+  
+  log('Notification process completed successfully');
+  return { 
+    success: true, 
+    issues, 
+    skipped: false, 
+    notification: `Notifications sent to ${successfulNotifications.length} webhook(s)`,
+    notificationResults 
+  };
 };
 
 export const checkDueDateAlert = async () => {
@@ -793,7 +755,7 @@ resolver.define('searchIssuesWithJql', async ({ payload }) => {
   });
   
   try {
-    const result = await executeJiraSearch(sanitizedJql, maxResults, fields);
+    const result = await executeJiraSearch(sanitizedJql);
     log('JQL search completed with security validation', { 
       success: result.success, 
       issuesCount: result.issues ? result.issues.length : 0 

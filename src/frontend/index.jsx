@@ -17,8 +17,8 @@ const convertLocalTimeToGMT = (localTime) => {
   
   if (!match) return localTime;
   
-  let hours = parseInt(match[1], 10);
-  const minutes = parseInt(match[2], 10);
+  let hours = Number.parseInt(match[1], 10);
+    const minutes = Number.parseInt(match[2], 10);
   
   // 获取时区偏移量（分钟）
   const timezoneOffset = getTimezoneOffset();
@@ -59,8 +59,8 @@ const convertGMTToLocalTime = (gmtTime) => {
   
   if (!match) return gmtTime;
   
-  let hours = parseInt(match[1], 10);
-  const minutes = parseInt(match[2], 10);
+  let hours = Number.parseInt(match[1], 10);
+    const minutes = Number.parseInt(match[2], 10);
   
   // 获取时区偏移量（分钟）
   const timezoneOffset = getTimezoneOffset();
@@ -145,8 +145,8 @@ const App = () => {
     
     if (!match) return false;
     
-    const hours = parseInt(match[1], 10);
-    const minutes = parseInt(match[2], 10);
+    const hours = Number.parseInt(match[1], 10);
+      const minutes = Number.parseInt(match[2], 10);
     
     return hours >= 0 && hours <= 23 && minutes >= 0 && minutes <= 59;
   };

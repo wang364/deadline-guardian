@@ -5,12 +5,130 @@ import ForgeReconciler, {
   Button,
   Label,
   Select,
+  Option,
   Text,
   Textfield,
   TimePicker,
   ErrorMessage,
 } from '@forge/react';
 import SettingsTable from '../components/SettingsTable';
+
+// 多语言配置
+const translations = {
+  en: {
+    appTitle: "Jira Issue Reminder",
+    settings: "Settings",
+    save: "Save",
+    cancel: "Cancel",
+    success: "Success",
+    error: "Error",
+    optional: "optional",
+    
+    // Webhook 配置
+    webhookUrl: "Webhook URL",
+    configureWebhook: "Configure your {platform} webhook URL for notifications",
+    
+    // 平台名称
+    feishu: "Feishu",
+    slack: "Slack", 
+    wechatwork: "WeChat Work",
+    teams: "Microsoft Teams",
+    
+    // 调度设置
+    scheduleSettings: "Schedule Settings",
+    schedulePeriod: "Schedule Period",
+    scheduleTime: "Schedule Time (24-hour format)",
+    selectTime: "Select time",
+    daily: "Daily",
+    weekly: "Weekly",
+    monthly: "Monthly",
+    
+    // 语言设置
+    languageSettings: "Language Settings",
+    language: "Language",
+    english: "English",
+    chinese: "Chinese",
+    
+    // 成功消息
+    settingsSaved: "Settings saved successfully",
+    settingsFailed: "Failed to save settings",
+    webhookSaved: "Webhook URL saved successfully",
+    webhookFailed: "Failed to save webhook URL",
+    
+    // 通知说明
+    notificationExplanation: "Notifications will be sent to all configured webhook URLs. Leave blank to disable notifications for a specific platform.",
+    
+    // 加载状态
+    loadingSettings: "Loading settings...",
+    
+    // 错误消息
+    invalidTimeFormat: "Please enter a valid time format (HH:MM)"
+  },
+  
+  zh: {
+    appTitle: "Jira 问题提醒",
+    settings: "设置",
+    save: "保存",
+    cancel: "取消",
+    success: "成功",
+    error: "错误",
+    optional: "可选",
+    
+    // Webhook 配置
+    webhookUrl: "Webhook URL",
+    configureWebhook: "配置您的 {platform} webhook URL 用于接收通知",
+    
+    // 平台名称
+    feishu: "飞书",
+    slack: "Slack",
+    wechatwork: "企业微信",
+    teams: "Microsoft Teams",
+    
+    // 调度设置
+    scheduleSettings: "调度设置",
+    schedulePeriod: "调度周期",
+    scheduleTime: "调度时间 (24小时制)",
+    selectTime: "选择时间",
+    daily: "每日",
+    weekly: "每周",
+    monthly: "每月",
+    
+    // 语言设置
+    languageSettings: "语言设置",
+    language: "语言",
+    english: "英语",
+    chinese: "中文",
+    
+    // 成功消息
+    settingsSaved: "设置保存成功",
+    settingsFailed: "设置保存失败",
+    webhookSaved: "Webhook URL 保存成功",
+    webhookFailed: "Webhook URL 保存失败",
+    
+    // 通知说明
+    notificationExplanation: "通知将发送到所有已配置的 webhook URL。留空可禁用特定平台的通知。",
+    
+    // 加载状态
+    loadingSettings: "正在加载设置...",
+    
+    // 错误消息
+    invalidTimeFormat: "请输入有效的时间格式 (HH:MM)"
+  }
+};
+
+// 翻译函数
+const t = (key, params = {}, lang = 'en') => {
+  let translation = translations[lang]?.[key] || translations['en'][key] || key;
+  
+  // 替换参数
+  if (params && Object.keys(params).length > 0) {
+    Object.keys(params).forEach(param => {
+      translation = translation.replace(`{${param}}`, params[param]);
+    });
+  }
+  
+  return translation;
+};
 
 // 使用后端解析器封装时间转换，避免直接传递包含函数的对象
 const convertLocalTimeToGMT = async (localTime) => {
@@ -39,6 +157,7 @@ const App = () => {
   const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('');
   const [slackWebhookUrl, setSlackWebhookUrl] = useState(''); // 新增Slack Webhook URL状态
   const [wechatworkWebhookUrl, setWeChatWorkWebhookUrl] = useState(''); // 新增WeChat Work Webhook URL状态
+  const [language, setLanguage] = useState('en'); // 新增语言设置状态
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [webhookError, setWebhookError] = useState('');
@@ -92,6 +211,16 @@ const App = () => {
       try {
         setIsLoading(true);
         
+        // 从Jira上下文获取语言设置
+        const context = await view.getContext();
+        const jiraLanguage = context?.locale || 'en';
+        // 简化为只支持中英文，根据Jira的语言设置自动检测
+        const detectedLanguage = jiraLanguage.startsWith('zh') ? 'zh' : 'en';
+        setLanguage(detectedLanguage);
+        
+        // 保存语言设置到storage供后台使用
+        await invoke('saveLanguageToStorage', { language: detectedLanguage });
+        
         // 获取用户设置
         const settingsResponse = await invoke('getSettings');
         const settingsData = settingsResponse.settings || [ { jql: '' } ];
@@ -138,7 +267,7 @@ const App = () => {
       // 保存前验证时间格式
       const isValidTime = await validateTimeFormat(scheduleTime);
       if (!isValidTime) {
-        setError('Please enter a valid time format (HH:MM)');
+        setError(t('invalidTimeFormat', {}, language));
         return;
       }
       
@@ -286,8 +415,10 @@ const App = () => {
   };
 
 
+
+
   if (isLoading) {
-    return <Text>Loading settings...</Text>;
+    return <Text>{t('loadingSettings', {}, language)}</Text>;
   }
 
   return (
@@ -295,13 +426,14 @@ const App = () => {
       <SettingsTable 
         settings={settings}
         setSettings={setSettings}
+        language={language}
       />      
 
       <Box paddingInline="space.200" borderWidth="1px" borderStyle="solid" borderColor="gray">
-        <Text size="large" weight="bold">Schedule Settings</Text>
+        <Text size="large" weight="bold">{t('scheduleSettings', {}, language)}</Text>
         <Box padding="small">
           <Label labelFor="schedulePeriod">
-            Schedule Period
+            {t('schedulePeriod', {}, language)}
           </Label>
           <Select
             id="schedulePeriod"
@@ -312,12 +444,12 @@ const App = () => {
         </Box>
         <Box padding="small">
           <Label labelFor="scheduleTime">
-            Schedule Time
+            {t('scheduleTime', {}, language)}
           </Label>
           <TimePicker
             value={scheduleTime}
             onChange={handleTimeChange}
-            placeholder="Select time"
+            placeholder={t('selectTime', {}, language)}
             timeFormat="HH:mm"
             timeIsEditable={true}
             selectProps={{
@@ -328,7 +460,7 @@ const App = () => {
         
         <Box padding="small">
           <Label labelFor="feishuWebhookUrl">
-            Feishu Webhook URL
+            {t('feishu', {}, language)} {t('webhookUrl', {}, language)}
           </Label>
           <Textfield
             id="feishuWebhookUrl"
@@ -337,13 +469,13 @@ const App = () => {
             placeholder="https://open.feishu.cn/open-apis/bot/v2/hook/..."
           />
           <Text size="small" color="subdued">
-            Configure your Feishu webhook URL for notifications (optional)
+            {t('configureWebhook', {platform: t('feishu', {}, language)}, language)} ({t('optional', {}, language)})
           </Text>
         </Box>
         
         <Box padding="small">
           <Label labelFor="slackWebhookUrl">
-            Slack Webhook URL
+            {t('slack', {}, language)} {t('webhookUrl', {}, language)}
           </Label>
           <Textfield
             id="slackWebhookUrl"
@@ -352,13 +484,13 @@ const App = () => {
             placeholder="https://hooks.slack.com/services/..."
           />
           <Text size="small" color="subdued">
-            Configure your Slack webhook URL for notifications (optional)
+            {t('configureWebhook', {platform: t('slack', {}, language)}, language)} ({t('optional', {}, language)})
           </Text>
         </Box>
         
         <Box padding="small">
           <Label labelFor="wechatworkWebhookUrl">
-            WeChat Work Webhook URL
+            {t('wechatwork', {}, language)} {t('webhookUrl', {}, language)}
           </Label>
           <Textfield
             id="wechatworkWebhookUrl"
@@ -367,13 +499,13 @@ const App = () => {
             placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
           />
           <Text size="small" color="subdued">
-            Configure your WeChat Work webhook URL for notifications (optional)
+            {t('configureWebhook', {platform: t('wechatwork', {}, language)}, language)} ({t('optional', {}, language)})
           </Text>
         </Box>
         
         <Box padding="small">
           <Text size="small" color="subdued">
-            Notifications will be sent to all configured webhook URLs. Leave blank to disable notifications for a specific platform.
+            {t('notificationExplanation', {}, language)}
           </Text>
         </Box>
         
@@ -382,7 +514,7 @@ const App = () => {
       </Box>
 
       <Box padding="space.200">
-          <Button appearance="primary" onClick={handleSaveSettings}>Save Settings</Button>
+          <Button appearance="primary" onClick={handleSaveSettings}>{t('save', {}, language)} {t('settings', {}, language)}</Button>
           <Text>{message}</Text>
       </Box>
     </>

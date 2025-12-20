@@ -1,6 +1,7 @@
 import Resolver from '@forge/resolver';
 import api, { storage, route } from '@forge/api';
 const timeUtils = require('../utils/timeUtils');
+const { t, formatDueDate: i18nFormatDueDate, detectLanguage } = require('../utils/i18n');
 
 const resolver = new Resolver();
 
@@ -8,6 +9,8 @@ const resolver = new Resolver();
 const log = (message, data) => {
   console.log(`[${new Date().toISOString()}] ${message}:`, JSON.stringify(data, null, 2));
 };
+
+
 
 // 定义选项数组，与前端保持一致
 const periodOptions = [
@@ -373,43 +376,67 @@ const formatDueDate = (dueDate) => {
 };
 
 // 创建Teams消息
-const createTeamsMessage = (issues) => ({
-  "@type": "MessageCard",
-  "@context": "http://schema.org/extensions",
-  "themeColor": "007ACC",
-  "summary": `Jira Due Date Alert - ${issues.length} issue(s) upcoming`,
-  "title": "🔔 Jira Issue Reminder",
-  "text": `You have ${issues.length} Jira issue(s) with approaching due dates:`,
-  "sections": [{
-    "activityTitle": "📋 Issues Requiring Attention",
-    "facts": issues.map(issue => ({
+const createTeamsMessage = async (issues) => {
+  const language = await detectLanguage();
+  const issuesUpcomingText = await t('issuesUpcoming', { count: issues.length }, language);
+  const reminderTitleText = await t('reminderTitle', {}, language);
+  
+  const facts = await Promise.all(issues.map(async (issue) => {
+    const dueDateInfo = await i18nFormatDueDate(issue.dueDate, language);
+    const assigneeText = await t('assignee', {}, language);
+    const unassignedText = await t('unassigned', {}, language);
+    const priorityText = await t('priority', {}, language);
+    const notSetText = await t('notSet', {}, language);
+    const statusText = await t('status', {}, language);
+    const unknownText = await t('unknown', {}, language);
+    
+    return {
       "name": `**[${issue.key}](${issue.link})** - ${issue.summary}`,
-      "value": `📅 ${formatDueDate(issue.dueDate)}\n👤 Assignee: ${issue.assignee || 'Unassigned'}\n🎯 Priority: ${issue.priority || 'Not set'}\n📊 Status: ${issue.status || 'Unknown'}`
-    })),
-    "markdown": true
-  }]
-});
+      "value": `📅 ${dueDateInfo}\n👤 ${assigneeText}: ${issue.assignee || unassignedText}\n🎯 ${priorityText}: ${issue.priority || notSetText}\n📊 ${statusText}: ${issue.status || unknownText}`
+    };
+  }));
+  
+  return {
+    "@type": "MessageCard",
+    "@context": "http://schema.org/extensions",
+    "themeColor": "007ACC",
+    "summary": issuesUpcomingText,
+    "title": reminderTitleText,
+    "text": issuesUpcomingText,
+    "sections": [{
+      "activityTitle": "📋 Issues Requiring Attention",
+      "facts": facts,
+      "markdown": true
+    }]
+  };
+};
 
 // 创建飞书消息
-const createFeishuMessage = (issues) => {
-  const issueList = issues.map(issue => {
-    const dueDateInfo = formatDueDate(issue.dueDate);
-    return `• **<u>[${issue.key}](${issue.link})</u>** - ${issue.summary} \n 📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`;
-  }).join('\n');
+const createFeishuMessage = async (issues) => {
+  const language = await detectLanguage();
+  const issueList = await Promise.all(issues.map(async (issue) => {
+    const dueDateInfo = await i18nFormatDueDate(issue.dueDate, language);
+      const unassignedText = await t('unassigned', {}, language);
+      const notSetText = await t('notSet', {}, language);
+      const unknownText = await t('unknown', {}, language);
+      return `• **<u>[${issue.key}](${issue.link})</u>** - ${issue.summary} \n 📅 ${dueDateInfo} | 👤 ${issue.assignee || unassignedText} | 🎯 ${issue.priority || notSetText} | 📊 ${issue.status || unknownText}`;
+    }));
+    
+    const issueListText = issueList.join('\n');
   
   return {
     "msg_type": "interactive",
     "card": {
       "config": { "wide_screen_mode": true, "enable_forward": true },
       "header": {
-        "title": { "tag": "plain_text", "content": "🔔 Jira Issue Reminder" },
+        "title": { "tag": "plain_text", "content": await t('reminderTitle', {}, language) },
         "template": "blue"
       },
       "elements": [{
         "tag": "div",
         "text": {
           "tag": "lark_md",
-          "content": `You have **${issues.length}** Jira issue(s) that require attention:\n\n${issueList}`
+          "content": await t('issuesRequireAttention', { count: issues.length }, language) + `\n\n${issueListText}`
         }
       }]
     }
@@ -417,17 +444,23 @@ const createFeishuMessage = (issues) => {
 };
 
 // 创建Slack消息
-const createSlackMessage = (issues) => {
-  const issueBlocks = issues.map(issue => {
-    const dueDateInfo = formatDueDate(issue.dueDate);
-    return {
-      "type": "section",
-      "text": {
-        "type": "mrkdwn",
-        "text": `*<${issue.link}|${issue.key}>* - ${issue.summary}\n📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`
-      }
-    };
-  });
+const createSlackMessage = async (issues) => {
+  const language = await detectLanguage();
+  const issueBlocks = await Promise.all(issues.map(async (issue) => {
+    const dueDateInfo = await i18nFormatDueDate(issue.dueDate, language);
+      const unassignedText = await t('unassigned', {}, language);
+      const notSetText = await t('notSet', {}, language);
+      const unknownText = await t('unknown', {}, language);
+      return {
+        "type": "section",
+        "text": {
+          "type": "mrkdwn",
+          "text": `*<${issue.link}|${issue.key}>* - ${issue.summary}\n📅 ${dueDateInfo} | 👤 ${issue.assignee || unassignedText} | 🎯 ${issue.priority || notSetText} | 📊 ${issue.status || unknownText}`
+        }
+      };
+    }));
+  
+  const issuesRequireAttentionText = await t('issuesRequireAttention', { count: issues.length }, language);
   
   return {
     "blocks": [
@@ -439,7 +472,7 @@ const createSlackMessage = (issues) => {
         "type": "section",
         "text": {
           "type": "mrkdwn",
-          "text": `You have *${issues.length}* Jira issue(s) that require attention:`
+          "text": issuesRequireAttentionText.replace('**', '*').replace('**', '*')
         }
       },
       { "type": "divider" },
@@ -449,14 +482,20 @@ const createSlackMessage = (issues) => {
 };
 
 // 创建WeChat Work消息
-const createWeChatWorkMessage = (issues) => {
-  const issueList = issues.map(issue => {
-    const dueDateInfo = formatDueDate(issue.dueDate);
-    return `• **${issue.key}** - ${issue.summary}\n    📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`;
-  }).join('\n');
+const createWeChatWorkMessage = async (issues) => {
+  const language = await detectLanguage();
+  const issueList = await Promise.all(issues.map(async (issue) => {
+    const dueDateInfo = await i18nFormatDueDate(issue.dueDate, language);
+    const unassignedText = await t('unassigned', {}, language);
+    const notSetText = await t('notSet', {}, language);
+    const unknownText = await t('unknown', {}, language);
+    return `• **${issue.key}** - ${issue.summary}\n    📅 ${dueDateInfo} | 👤 ${issue.assignee || unassignedText} | 🎯 ${issue.priority || notSetText} | 📊 ${issue.status || unknownText}`;
+  }));
+  
+  const issueListText = issueList.join('\n\n');
   
   // 限制内容长度，确保不超过4096字节
-  let content = `🔔 You have **${issues.length}** Jira issue(s) that require attention:\n\n${issueList}`;
+  let content = '🔔' + await t('issuesRequireAttention', { count: issues.length }, language) + '\n\n' + issueListText;
   
   if (content.length > 4000) {
     content = content.substring(0, 4000) + '...';
@@ -487,7 +526,7 @@ const sendWebhookNotification = async (webhook, issues) => {
       return { type: webhook.type, success: false, error: 'Unsupported webhook type' };
     }
     
-    const alertMessage = createMessage(issues);
+    const alertMessage = await createMessage(issues);
     log(`Sending notification to ${webhook.type} webhook`, { 
       webhookType: webhook.type,
       issuesCount: issues.length
@@ -936,6 +975,8 @@ resolver.define('saveSlackWebhookUrl', async ({ payload }) => {
   return saveWebhookUrl(payload, 'slack');
 });
 
+
+
 // Get WeChat Work Webhook URL
 resolver.define('getWeChatWorkWebhookUrl', async () => {
   log('Fetching WeChat Work webhook URL from storage');
@@ -1068,6 +1109,25 @@ resolver.define('getTimeUtils', async () => {
     getTimezoneOffset: timeUtils.getTimezoneOffset,
     isValidTimeFormat: timeUtils.isValidTimeFormat
   };
+});
+
+// 保存语言设置到storage
+resolver.define('saveLanguageToStorage', async ({ payload }) => {
+  log('Saving language to storage', { 
+    payloadType: typeof payload,
+    payloadKeys: payload ? Object.keys(payload) : []
+  });
+  
+  const { language } = payload;
+  
+  if (!language || (language !== 'en' && language !== 'zh')) {
+    log('Invalid language provided', { language });
+    return { success: false, error: 'Language must be either "en" or "zh"' };
+  }
+  
+  await storage.set('userLanguage', language);
+  log('Language saved to storage successfully', { language });
+  return { success: true, message: 'Language saved successfully' };
 });
 
 export const handler = resolver.getDefinitions();

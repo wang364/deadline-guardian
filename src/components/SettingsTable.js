@@ -3,7 +3,52 @@ import PropTypes from 'prop-types';
 import { Box, Button, Textfield, DynamicTable, Text, Inline, Lozenge, Spinner, SectionMessage } from '@forge/react';
 import { invoke } from '@forge/bridge';
 
-const SettingsTable = ({ settings, setSettings }) => {
+// 多语言配置
+const translations = {
+  en: {
+    jqlSettings: "JQL Query Settings",
+    enterJqlQuery: "Enter JQL query... (e.g., assignee = currentUser() AND resolution = Unresolved)",
+    enterJqlFirst: "Please enter a JQL query first",
+    testJqlSearch: "Test JQL Search",
+    testing: "Testing...",
+    testSuccessful: "Test Successful",
+    testFailed: "Test Failed",
+    clearResult: "Clear Result",
+    foundIssues: "Found {count} issues",
+    error: "Error: {error}",
+    exception: "Exception: {error}"
+  },
+  
+  zh: {
+    jqlSettings: "JQL 查询设置",
+    enterJqlQuery: "输入 JQL 查询... (例如：assignee = currentUser() AND resolution = Unresolved)",
+    enterJqlFirst: "请先输入 JQL 查询",
+    testJqlSearch: "测试 JQL 查询",
+    testing: "测试中...",
+    testSuccessful: "测试成功",
+    testFailed: "测试失败",
+    clearResult: "清除结果",
+    foundIssues: "找到 {count} 个问题",
+    error: "错误: {error}",
+    exception: "异常: {error}"
+  }
+};
+
+// 翻译函数
+const t = (key, params = {}, lang = 'en') => {
+  let translation = translations[lang]?.[key] || translations['en'][key] || key;
+  
+  // 替换参数
+  if (params && Object.keys(params).length > 0) {
+    Object.keys(params).forEach(param => {
+      translation = translation.replace(`{${param}}`, params[param]);
+    });
+  }
+  
+  return translation;
+};
+
+const SettingsTable = ({ settings, setSettings, language = 'en' }) => {
   const [testResults, setTestResults] = useState({});
   const [loadingTests, setLoadingTests] = useState({});
 
@@ -26,7 +71,7 @@ const SettingsTable = ({ settings, setSettings }) => {
 
   const testJqlSearch = async (index, jql) => {
     if (!jql || !jql.trim()) {
-      alert('Please enter a JQL query first');
+      alert(t('enterJqlFirst', {}, language));
       return;
     }
 
@@ -48,7 +93,7 @@ const SettingsTable = ({ settings, setSettings }) => {
           ...prev,
           [index]: {
             success: true,
-            message: `Found ${result.issues.length} issues`,
+            message: t('foundIssues', {count: result.issues.length}, language),
             issues: result.issues.length,
             sampleIssues: result.issues.slice(0, 3) // Show first 3 issues as sample
           }
@@ -58,7 +103,7 @@ const SettingsTable = ({ settings, setSettings }) => {
           ...prev,
           [index]: {
             success: false,
-            message: `Error: ${result.error}`,
+            message: t('error', {error: result.error}, language),
             error: result.error
           }
         }));
@@ -69,7 +114,7 @@ const SettingsTable = ({ settings, setSettings }) => {
         ...prev,
         [index]: {
           success: false,
-          message: `Exception: ${error.message}`,
+          message: t('exception', {error: error.message}, language),
           error: error.message
         }
       }));
@@ -98,14 +143,14 @@ const SettingsTable = ({ settings, setSettings }) => {
             <Textfield
               value={setting.jql || ''}
               onChange={(value) => handleChange(index, 'jql', value)}
-              placeholder="Enter JQL query... (e.g., assignee = currentUser() AND resolution = Unresolved)"
+              placeholder={t('enterJqlQuery', {}, language)}
               style={{ width: '100%' }}
             />
             {testResults[index] && (
               <Box paddingTop="space.100">
                 <SectionMessage
                   appearance={testResults[index].success ? "success" : "error"}
-                  title={testResults[index].success ? "Test Successful" : "Test Failed"}
+                  title={testResults[index].success ? t('testSuccessful', {}, language) : t('testFailed', {}, language)}
                 >
                   <Box>
                     <Text>{testResults[index].message}</Text>
@@ -144,9 +189,9 @@ const SettingsTable = ({ settings, setSettings }) => {
               {loadingTests[index] ? (
                 <Inline>
                   <Spinner size="small" />
-                  <Text>Testing...</Text>
+                  <Text>{t('testing', {}, language)}</Text>
                 </Inline>
-              ) : 'Test JQL Search'}
+              ) : t('testJqlSearch', {}, language)}
             </Button>
             {testResults[index] && (
               <Box paddingTop="space.050">
@@ -154,7 +199,7 @@ const SettingsTable = ({ settings, setSettings }) => {
                   appearance="subtle" 
                   onClick={() => clearTestResult(index)}
                 >
-                  Clear Result
+                  {t('clearResult', {}, language)}
                 </Button>
               </Box>
             )}
@@ -166,7 +211,7 @@ const SettingsTable = ({ settings, setSettings }) => {
 
   return (
     <Box paddingInline="space.200">
-      <Text size="large" weight="bold">JQL Query Settings</Text>
+      <Text size="large" weight="bold">{t('jqlSettings', {}, language)}</Text>
       <Box paddingTop="space.100">
         <DynamicTable
           rows={rows}
@@ -187,7 +232,9 @@ SettingsTable.propTypes = {
     })
   ).isRequired,
   /** Function to update settings */
-  setSettings: PropTypes.func.isRequired
+  setSettings: PropTypes.func.isRequired,
+  /** Language setting */
+  language: PropTypes.string
 };
 
 export default SettingsTable;

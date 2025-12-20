@@ -36,3 +36,4 @@ permissions:
       backend:
         - address: open.feishu.cn
         - address: hooks.slack.com
+        - address: qyapi.weixin.qq.com

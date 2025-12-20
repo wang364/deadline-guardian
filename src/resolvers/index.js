@@ -448,11 +448,34 @@ const createSlackMessage = (issues) => {
   };
 };
 
+// 创建WeChat Work消息
+const createWeChatWorkMessage = (issues) => {
+  const issueList = issues.map(issue => {
+    const dueDateInfo = formatDueDate(issue.dueDate);
+    return `• **${issue.key}** - ${issue.summary}\n    📅 ${dueDateInfo} | 👤 ${issue.assignee || 'Unassigned'} | 🎯 ${issue.priority || 'Not set'} | 📊 ${issue.status || 'Unknown'}`;
+  }).join('\n');
+  
+  // 限制内容长度，确保不超过4096字节
+  let content = `🔔 You have **${issues.length}** Jira issue(s) that require attention:\n\n${issueList}`;
+  
+  if (content.length > 4000) {
+    content = content.substring(0, 4000) + '...';
+  }
+  
+  return {
+    msgtype: "markdown",
+    markdown: {
+      content: content
+    }
+  };
+};
+
 // 消息创建器映射
 const messageCreators = {
   teams: createTeamsMessage,
   feishu: createFeishuMessage,
-  slack: createSlackMessage
+  slack: createSlackMessage,
+  wechatwork: createWeChatWorkMessage
 };
 
 // 发送单个webhook通知
@@ -480,15 +503,26 @@ const sendWebhookNotification = async (webhook, issues) => {
       log(`Notification sent successfully to ${webhook.type}`);
       return { type: webhook.type, success: true, status: response.status };
     } else {
+      let errorDetails = `HTTP ${response.status}: ${response.statusText}`;
+      
+      // 尝试获取响应体中的错误信息
+      try {
+        const responseBody = await response.text();
+        errorDetails += ` - Response: ${responseBody.substring(0, 200)}`;
+      } catch (e) {
+        errorDetails += ' - Could not read response body';
+      }
+      
       log(`Failed to send notification to ${webhook.type}`, { 
         status: response.status,
-        statusText: response.statusText 
+        statusText: response.statusText,
+        webhookType: webhook.type,
+        urlPreview: webhook.url
       });
       return { 
         type: webhook.type, 
         success: false, 
-        status: response.status,
-        error: response.statusText 
+        error: errorDetails
       };
     }
   } catch (error) {
@@ -505,21 +539,44 @@ const getConfiguredWebhooks = async () => {
   const webhookUrls = await Promise.all([
     storage.get('teamsWebhookUrl'),
     storage.get('feishuWebhookUrl'),
-    storage.get('slackWebhookUrl')
+    storage.get('slackWebhookUrl'),
+    storage.get('wechatworkWebhookUrl')
   ]);
   
-  const [teamsWebhookUrl, feishuWebhookUrl, slackWebhookUrl] = webhookUrls;
+  const [teamsWebhookUrl, feishuWebhookUrl, slackWebhookUrl, wechatworkWebhookUrl] = webhookUrls;
   
   log('Webhook configuration check', { 
     hasTeamsWebhook: !!teamsWebhookUrl,
     hasFeishuWebhook: !!feishuWebhookUrl,
-    hasSlackWebhook: !!slackWebhookUrl
+    hasSlackWebhook: !!slackWebhookUrl,
+    hasWeChatWorkWebhook: !!wechatworkWebhookUrl,
+    teamsUrlPreview: teamsWebhookUrl ? teamsWebhookUrl.substring(0, 30) + '...' : null,
+    feishuUrlPreview: feishuWebhookUrl ? feishuWebhookUrl.substring(0, 30) + '...' : null,
+    slackUrlPreview: slackWebhookUrl ? slackWebhookUrl.substring(0, 30) + '...' : null,
+    wechatworkUrlPreview: wechatworkWebhookUrl ? wechatworkWebhookUrl.substring(0, 30) + '...' : null
   });
   
   const webhooks = [];
   if (teamsWebhookUrl) webhooks.push({ url: teamsWebhookUrl, type: 'teams' });
   if (feishuWebhookUrl) webhooks.push({ url: feishuWebhookUrl, type: 'feishu' });
   if (slackWebhookUrl) webhooks.push({ url: slackWebhookUrl, type: 'slack' });
+  if (wechatworkWebhookUrl) {
+    // 验证企业微信webhook URL格式
+    const isValidWeChatWorkUrl = wechatworkWebhookUrl.startsWith('https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=');
+    if (!isValidWeChatWorkUrl) {
+      log('Invalid WeChat Work webhook URL format', { 
+        urlPreview: wechatworkWebhookUrl.substring(0, 50) + '...',
+        expectedFormat: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=...'
+      });
+    } else {
+      webhooks.push({ url: wechatworkWebhookUrl, type: 'wechatwork' });
+    }
+  }
+  
+  log('Configured webhooks', { 
+    total: webhooks.length,
+    webhooks: webhooks.map(w => ({ type: w.type, urlPreview: w.url.substring(0, 30) + '...' }))
+  });
   
   return webhooks;
 };
@@ -803,7 +860,7 @@ const saveWebhookUrl = async (payload, webhookType) => {
   const webhookConfig = {
     feishu: {
       storageKey: 'feishuWebhookUrl',
-      defaultUrl: 'https://open.feishu.cn/open-apis/bot/v2/hook/',
+      defaultUrl: '',
       domainPattern: 'open.feishu.cn',
       typeName: 'Feishu'
     },
@@ -812,6 +869,12 @@ const saveWebhookUrl = async (payload, webhookType) => {
       defaultUrl: '',
       domainPattern: 'hooks.slack.com',
       typeName: 'Slack'
+    },
+    wechatwork: {
+      storageKey: 'wechatworkWebhookUrl',
+      defaultUrl: '',
+      domainPattern: 'qyapi.weixin.qq.com',
+      typeName: 'WeChat Work'
     }
   };
   
@@ -871,6 +934,29 @@ resolver.define('getSlackWebhookUrl', async () => {
 // Save Slack Webhook URL
 resolver.define('saveSlackWebhookUrl', async ({ payload }) => {
   return saveWebhookUrl(payload, 'slack');
+});
+
+// Get WeChat Work Webhook URL
+resolver.define('getWeChatWorkWebhookUrl', async () => {
+  log('Fetching WeChat Work webhook URL from storage');
+  const url = await storage.get('wechatworkWebhookUrl');
+  log('WeChat Work webhook URL fetched', { 
+    urlExists: !!url,
+    urlLength: url ? url.length : 0,
+    urlPreview: url ? url.substring(0, 30) + '...' : 'null',
+    fullUrl: url || 'null'
+  });
+  return { wechatworkWebhookUrl: url || '' };
+});
+
+// Save WeChat Work Webhook URL
+resolver.define('saveWeChatWorkWebhookUrl', async ({ payload }) => {
+  log('Saving WeChat Work webhook URL', { 
+    payloadKeys: payload ? Object.keys(payload) : [],
+    hasWeChatWorkUrl: !!(payload && payload.wechatworkWebhookUrl),
+    urlPreview: payload && payload.wechatworkWebhookUrl ? payload.wechatworkWebhookUrl.substring(0, 30) + '...' : null
+  });
+  return saveWebhookUrl(payload, 'wechatwork');
 });
 
 // Save Jira Site URL
@@ -1060,7 +1146,8 @@ const securityUtils = {
         'open.feishu.cn',          // 飞书
         'hooks.slack.com',         // Slack
         'hooks.zapier.com',        // Zapier
-        'webhook.site'             // 测试用途
+        'webhook.site',            // 测试用途
+        'qyapi.weixin.qq.com'      // WeChat Work
       ];
       
       const isDomainAllowed = allowedDomains.some(domain => 

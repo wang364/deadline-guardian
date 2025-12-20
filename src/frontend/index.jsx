@@ -38,6 +38,7 @@ const App = () => {
   // const [teamsWebhookUrl, setTeamsWebhookUrl] = useState('');
   const [feishuWebhookUrl, setFeishuWebhookUrl] = useState('');
   const [slackWebhookUrl, setSlackWebhookUrl] = useState(''); // 新增Slack Webhook URL状态
+  const [wechatworkWebhookUrl, setWeChatWorkWebhookUrl] = useState(''); // 新增WeChat Work Webhook URL状态
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
   const [webhookError, setWebhookError] = useState('');
@@ -117,6 +118,11 @@ const App = () => {
         const slackWebhookData = slackWebhookResponse.slackWebhookUrl || '';
         setSlackWebhookUrl(slackWebhookData);
         
+        // 获取WeChat Work Webhook URL
+        const wechatworkWebhookResponse = await invoke('getWeChatWorkWebhookUrl');
+        const wechatworkWebhookData = wechatworkWebhookResponse.wechatworkWebhookUrl || '';
+        setWeChatWorkWebhookUrl(wechatworkWebhookData);
+        
       } catch (err) {
         setError(err.message);
       } finally {
@@ -138,7 +144,7 @@ const App = () => {
       
       // 获取当前Jira站点的上下文信息
       const forgeContext = await view.getContext();
-      console.log('Forge context:', forgeContext);
+
       
       // 从上下文中提取站点URL
       let jiraSiteUrl = '';
@@ -182,6 +188,14 @@ const App = () => {
       console.log('Slack webhook save result:', slackWebhookResult);
       if (!slackWebhookResult.success) {
         setWebhookError(slackWebhookResult.message);
+        return;
+      }
+      
+      // 保存WeChat Work Webhook URL
+      const wechatworkWebhookResult = await invoke('saveWeChatWorkWebhookUrl', { wechatworkWebhookUrl });
+      console.log('WeChat Work webhook save result:', wechatworkWebhookResult);
+      if (!wechatworkWebhookResult.success) {
+        setWebhookError(wechatworkWebhookResult.message);
         return;
       }
       
@@ -241,6 +255,19 @@ const App = () => {
     const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
     console.log('Slack webhook URL changed:', newUrl);
     setSlackWebhookUrl(newUrl);
+    if (webhookError) {
+      setWebhookError('');
+    }
+    if (error) {
+      setError('');
+    }
+  };
+
+  // Handle WeChat Work Webhook URL change
+  const handleWeChatWorkWebhookUrlChange = (value) => {
+    const newUrl = typeof value === 'string' ? value : (value?.target?.value || '');
+    console.log('WeChat Work webhook URL changed:', newUrl);
+    setWeChatWorkWebhookUrl(newUrl);
     if (webhookError) {
       setWebhookError('');
     }
@@ -326,6 +353,21 @@ const App = () => {
           />
           <Text size="small" color="subdued">
             Configure your Slack webhook URL for notifications (optional)
+          </Text>
+        </Box>
+        
+        <Box padding="small">
+          <Label labelFor="wechatworkWebhookUrl">
+            WeChat Work Webhook URL
+          </Label>
+          <Textfield
+            id="wechatworkWebhookUrl"
+            value={wechatworkWebhookUrl}
+            onChange={handleWeChatWorkWebhookUrlChange}
+            placeholder="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=..."
+          />
+          <Text size="small" color="subdued">
+            Configure your WeChat Work webhook URL for notifications (optional)
           </Text>
         </Box>
         

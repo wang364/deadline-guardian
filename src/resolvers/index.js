@@ -489,7 +489,7 @@ const createWeChatWorkMessage = async (issues) => {
     const unassignedText = await t('unassigned', {}, language);
     const notSetText = await t('notSet', {}, language);
     const unknownText = await t('unknown', {}, language);
-    return `• **${issue.key}** - ${issue.summary}\n    📅 ${dueDateInfo} | 👤 ${issue.assignee || unassignedText} | 🎯 ${issue.priority || notSetText} | 📊 ${issue.status || unknownText}`;
+    return `• **[${issue.key}](${issue.link})** - ${issue.summary}\n    📅 ${dueDateInfo} | 👤 ${issue.assignee || unassignedText} | 🎯 ${issue.priority || notSetText} | 📊 ${issue.status || unknownText}`;
   }));
   
   const issueListText = issueList.join('\n\n');
